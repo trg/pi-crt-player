@@ -152,3 +152,61 @@ and `telnet <hostname>` — so a guest sees how to drive it. Rendered as an
 `osd-overlay` on a small virtual canvas (large, CRT-readable glyphs; centred to
 clear overscan); no image tooling needed. Room to grow: a clock, now/next info,
 or a looping default playlist.
+
+---
+
+## 4. Channel surfing + TV guide
+
+Make the box feel like an actual TV: **each YouTube channel is a "channel"** you
+flip through, with a **TV guide** showing what's on. Leans hard into the CRT
+aesthetic and fits the control core cleanly — a "channel" is just another source
+of videos for the queue, so the frontends only gain a `channel`/`surf` verb.
+
+**What a "channel" is.** A YouTube channel mapped to a never-ending stream: pull
+its uploads (yt-dlp `--flat-playlist` on the channel's *uploads* playlist or
+`/videos` tab) and treat that list as the channel's programming. Tuning to a
+channel loads its current programme; when a video ends, auto-advance to the next
+one *on that channel* (not the personal queue) so it plays like a live feed.
+
+**Two ways channels get populated:**
+
+- **Hardcoded lineup (easy, do first).** A small config file mapping channel
+  number → YouTube channel (handle/ID) + a display name, e.g. `2 → @NASA`,
+  `3 → @nightdrivetv`. Fully deterministic, no auth, survives reboots. This is
+  the MVP and worth shipping on its own.
+- **Auto from my subscriptions (nice, harder).** Turn each account I follow into
+  its own channel. The catch: **subscriptions are private**, so yt-dlp needs my
+  logged-in credentials — `--cookies cookies.txt` (or `--cookies-from-browser`,
+  which won't work on headless Pi OS Lite, so a **cookies.txt exported from a
+  desktop browser and dropped on the box** is the realistic path). Then
+  `https://www.youtube.com/feed/channels` / the subscriptions feed enumerates
+  who I follow; each becomes an auto-numbered channel after the hardcoded ones.
+  Refresh the list periodically (subs change; cookies eventually expire — needs
+  a re-export, so surface a clear "auth expired" state).
+
+**Surfing UX (telnet + CLI, later web):**
+
+- `channels` / `guide` — show the TV guide (see below).
+- `channel <n>` (alias `tune <n>`) — jump to a channel.
+- `next-channel` / `prev-channel` (alias `ch+` / `ch-`) — flip up/down like a
+  remote; great for a future web UI with just two big buttons.
+
+**The TV guide.** YouTube has no linear schedule, so we *synthesize* one. Two
+options, in order of ambition:
+
+1. **"Now on each channel" listing** — a grid: channel number, name, and the
+   title of the video that would play if you tuned in. Simple, honest.
+2. **Simulated broadcast (fun).** Make each channel feel *live*: derive the
+   current programme + seek offset deterministically from the wall clock (e.g.
+   hash the date to pick today's playlist order, then map "now" to a position
+   in it), so tuning in drops you mid-programme and everyone surfing sees the
+   same thing "airing." Pure illusion, but very CRT.
+
+Rendered as a retro guide screen (the Press Start 2P green treatment from §3),
+and eventually the web remote's landing page.
+
+**Architecture fit.** Channel definitions + the resolved video lists live in the
+control core (a `ChannelStore` beside the queue); surfing is just
+"load channel N's current item, then auto-advance within that channel." No
+frontend logic, consistent with §0. Cache resolved channel listings (with a TTL)
+so surfing is instant and we're not hitting yt-dlp on every flip.
