@@ -1,43 +1,29 @@
 # pi-crt-player
 
 Play YouTube videos on a small 4:3 CRT connected to a Raspberry Pi 4 (over HDMI).
-Drive it from your terminal over SSH, or hand the TV to anyone on the network
-with a no-login telnet remote. Built for Raspberry Pi OS Lite (trixie) — no
-desktop environment required.
+The TV is driven over the network by **telnet** — no login, no app to install,
+nothing to plug in. Anyone on the home network just connects and types. Built
+for Raspberry Pi OS Lite (trixie) — no desktop environment required. (SSH is
+only used to install and administer the box; see the bottom.)
 
-## Setup
+When nothing is playing, the CRT shows a retro green "attract" screen telling
+guests exactly how to connect:
 
-On a fresh Pi:
-
-```bash
-git clone https://github.com/trg/pi-crt-player.git
-cd pi-crt-player
-./setup.sh
+```
+        play videos
+          telnet
+         station
 ```
 
-That's it — `setup.sh` starts the control daemon, so you're ready immediately.
+## Using it (telnet)
 
-## Usage
-
-```bash
-play space oddity david bowie   # play now (URL or search terms)
-queue another great song        # add to the queue
-now                             # what's playing + queue
-next                            # skip to the next video
-stop                            # stop and clear the queue
-```
-
-These are thin clients that talk to the always-running control daemon, so
-playback is independent of your SSH session.
-
-## Remote control (telnet)
-
-The same daemon runs a no-login telnet server (port 23) so anyone on the
-network can drive the TV:
+From any machine on the network:
 
 ```
 telnet <pi-host>
 ```
+
+You're dropped straight into the remote — no password:
 
 ```
 ======================================
@@ -52,13 +38,24 @@ playing: Apollo 11 Launch - Restored
 queued (#1): First Moon Landing 1969
 ```
 
-Commands: `search`, `play <n|url|words>`, `queue <n|url|words>`, `list`,
-`next`, `pause`, `stop`, `now`, `help`, `quit`.
+Commands:
+
+| Command                | What it does                                     |
+|------------------------|--------------------------------------------------|
+| `search <words>`       | search YouTube, numbered results                 |
+| `play <n\|url\|words>` | play now (`n` picks from the last search)        |
+| `queue <n\|url\|words>`| add to the queue (plays now if nothing is on)    |
+| `list` / `now`         | show what's playing + the queue                  |
+| `next`                 | skip to the next queued video                    |
+| `pause`                | pause / resume                                   |
+| `stop`                 | stop and clear the queue (back to attract screen)|
+| `clear`                | empty the queue, keep the current video playing  |
+| `help`                 | show the command list                            |
+| `quit`                 | disconnect                                        |
 
 It's an **open, unauthenticated** service — anyone who can reach the Pi can
 control playback (a home-network remote, by design). Search terms are passed to
 yt-dlp as argument lists, never through a shell, so they can't inject commands.
-Manage it with `systemctl status/restart crt-player`.
 
 ## How it works
 
@@ -69,15 +66,57 @@ Manage it with `systemctl status/restart crt-player`.
 - The **queue** is managed by the daemon; when a video ends it auto-advances to
   the next one, or shows the idle "attract" screen — big green text (`play
   videos` / `telnet <host>`) in a retro arcade pixel font (Press Start 2P,
-  installed by `setup.sh`) so a guest knows how to drive it. It's drawn by mpv's
-  OSD, so no image tooling is needed. (Drop a PNG at
-  `/usr/local/lib/pi-crt-player/idle.png` for a background behind the text.)
-- Two thin **frontends** talk to the daemon: the telnet server, and an
-  **HTTP/JSON API** on `127.0.0.1:8677` (used by the `pcp` CLI, and ready to
-  back a future box-hosted web UI — see [ROADMAP.md](ROADMAP.md)).
+  installed by `setup.sh`). It's drawn by mpv's OSD, so no image tooling is
+  needed. (Drop a PNG at `/usr/local/lib/pi-crt-player/idle.png` for a
+  background behind the text.)
+- The telnet server is a thin **frontend** over the daemon. Alongside it the
+  daemon exposes an **HTTP/JSON API** on `127.0.0.1:8677` — used by the admin
+  CLI below, and ready to back a box-hosted web remote later (see
+  [ROADMAP.md](ROADMAP.md)). No playback logic lives in a frontend.
 - **mpv** renders via DRM/KMS on the Pi's V3D GPU (`vo=gpu`, no X/Wayland);
   **yt-dlp** resolves YouTube. Output is pinned to **720x480** / **H.264 <=480p**
   for hardware decode with no expensive upscaling. See `config/mpv.conf`.
+
+## Setup & administration (SSH)
+
+SSH is only for setting up and managing the box — day-to-day use is telnet.
+
+On a fresh Pi:
+
+```bash
+git clone https://github.com/trg/pi-crt-player.git
+cd pi-crt-player
+./setup.sh
+```
+
+That's it — `setup.sh` installs everything and starts the control daemon, so the
+telnet remote is live immediately (and comes back on every boot).
+
+Manage the service with `systemctl status/restart crt-player`.
+
+The same actions the telnet remote offers are also available as a local CLI
+(handy when you're already on the box over SSH):
+
+```bash
+play space oddity david bowie   # play now (URL or search terms)
+queue another great song        # add to the queue
+now                             # what's playing + queue
+next                            # skip to the next video
+stop                            # stop and clear the queue
+```
+
+`play`, `queue`, `now`, `next`, and `stop` are installed as standalone commands.
+The rest are reached through `pcp`:
+
+```bash
+pcp search apollo 11 restored   # numbered search results
+pcp pause                       # pause / resume
+pcp clear                       # empty the queue, keep the current video
+pcp status                      # same as `now`
+```
+
+These are thin clients over the daemon's HTTP API, so they work regardless of
+your SSH session and stay in sync with whatever telnet users are doing.
 
 ## Roadmap
 

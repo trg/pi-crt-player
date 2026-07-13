@@ -53,6 +53,7 @@ HELP = (
     "  next                 skip to the next video\r\n"
     "  pause                pause / resume\r\n"
     "  stop                 stop and clear the queue\r\n"
+    "  clear                empty the queue, keep the current video\r\n"
     "  now                  what's playing + queue\r\n"
     "  help                 show this help\r\n"
     "  quit                 disconnect\r\n"
