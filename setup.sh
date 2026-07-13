@@ -24,12 +24,12 @@ echo "==> Installing mpv config to ~/.config/mpv/mpv.conf..."
 mkdir -p "$HOME/.config/mpv"
 cp "$REPO_DIR/config/mpv.conf" "$HOME/.config/mpv/mpv.conf"
 
-echo "==> Installing crt-play / crt-stop commands to /usr/local/bin..."
-sudo cp "$REPO_DIR/bin/crt-play" "$REPO_DIR/bin/crt-stop" /usr/local/bin/
-sudo chmod a+rx /usr/local/bin/crt-play /usr/local/bin/crt-stop
+echo "==> Installing play / stop commands to /usr/local/bin..."
+sudo cp "$REPO_DIR/bin/play" "$REPO_DIR/bin/stop" /usr/local/bin/
+sudo chmod a+rx /usr/local/bin/play /usr/local/bin/stop
 
 echo
 echo "Done. Log out and back in ONCE (for the group change to apply), then:"
-echo "  crt-play 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"
-echo "  crt-play space oddity david bowie"
-echo "  crt-stop"
+echo "  play 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"
+echo "  play space oddity david bowie"
+echo "  stop"

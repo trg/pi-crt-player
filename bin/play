@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# crt-play — play a YouTube video (or search) on the CRT.
+# play — play a YouTube video (or search) on the CRT.
 # Runs detached so it keeps playing after you disconnect SSH.
 #
-#   crt-play 'https://www.youtube.com/watch?v=...'   # play a URL
-#   crt-play space oddity david bowie                 # search, play first hit
+#   play 'https://www.youtube.com/watch?v=...'   # play a URL
+#   play space oddity david bowie                 # search, play first hit
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  echo "usage: crt-play <youtube-url | search terms>" >&2
+  echo "usage: play <youtube-url | search terms>" >&2
   exit 1
 fi
 
@@ -30,4 +30,4 @@ pkill -x mpv 2>/dev/null || true
 setsid mpv "$target" >/tmp/crt-play.log 2>&1 </dev/null &
 
 echo "playing: $target"
-echo "(log: /tmp/crt-play.log — run 'crt-stop' to stop)"
+echo "(log: /tmp/crt-play.log — run 'stop' to stop)"

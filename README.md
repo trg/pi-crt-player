@@ -20,9 +20,9 @@ effect) and you're ready.
 ## Usage
 
 ```bash
-crt-play 'https://www.youtube.com/watch?v=...'   # play a URL
-crt-play space oddity david bowie                 # search, play the first hit
-crt-stop                                          # stop playback
+play 'https://www.youtube.com/watch?v=...'   # play a URL
+play space oddity david bowie                 # search, play the first hit
+stop                                          # stop playback
 ```
 
 Playback is detached from your SSH session, so it keeps going after you log out.
