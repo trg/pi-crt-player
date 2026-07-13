@@ -67,6 +67,7 @@ See `config/mpv.conf` for the tunables (resolution, aspect/panscan, format).
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) — multi-provider support (and the DRM wall that
-blocks Paramount+/Hulu/HBO through mpv), a video queue, and idle-screen /
-accurate-`now` improvements.
+See [ROADMAP.md](ROADMAP.md) — the long-term frontend-agnostic architecture
+(telnet now, web later), more ways to get video onto the box (casting target +
+non-DRM sources, and the DRM wall that blocks Paramount+/Hulu/HBO), a video
+queue, and idle-screen / accurate-`now` improvements.
