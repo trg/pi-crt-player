@@ -17,6 +17,7 @@ the console login, and `now` always reflects true state.
 import asyncio
 import json
 import os
+import socket
 
 MPV = "/usr/bin/mpv"
 YT_DLP = "/usr/local/bin/yt-dlp"
@@ -26,6 +27,13 @@ HTTP_HOST = os.environ.get("HTTP_HOST", "127.0.0.1")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "8677"))
 IDLE_IMAGE = os.environ.get("IDLE_IMAGE", "/usr/local/lib/pi-crt-player/idle.png")
 SEARCH_COUNT = 8
+
+# Idle "attract" screen: big green text drawn by mpv's OSD (libass) when
+# nothing is playing. Small virtual canvas => large, CRT-readable glyphs; text
+# is centred to stay clear of CRT overscan. See Controller._idle_overlay.
+IDLE_OVERLAY_ID = 47
+IDLE_RES_X = 320
+IDLE_RES_Y = 240
 
 BANNER = (
     "\r\n"
@@ -171,10 +179,32 @@ class Controller:
         hits = await self.search(q, 1)
         return hits[0] if hits else None
 
+    # ---- idle "attract" screen (green text over a black window) ----
+    def _idle_ass(self):
+        host = socket.gethostname() or "this-box"
+        if not host.endswith(".local"):
+            host += ".local"          # what a Mac/phone on the LAN dials via mDNS
+        cx = IDLE_RES_X // 2
+        base = r"\an5\bord3\shad0\1c&H00FF00&\3c&H000000&"  # centred, green, black outline
+        line1 = r"{%s\pos(%d,%d)\b1\fs56}play videos" % (base, cx, 92)
+        line2 = r"{%s\pos(%d,%d)\fs30}telnet %s" % (base, cx, 152, host)
+        return line1 + "\n" + line2
+
+    async def _show_idle_overlay(self):
+        await self.mpv.command(
+            "osd-overlay", IDLE_OVERLAY_ID, "ass-events", self._idle_ass(),
+            IDLE_RES_X, IDLE_RES_Y, 0, False)
+
+    async def _hide_idle_overlay(self):
+        await self.mpv.command(
+            "osd-overlay", IDLE_OVERLAY_ID, "none", "",
+            IDLE_RES_X, IDLE_RES_Y, 0, False)
+
     # ---- playback primitives (hold the lock) ----
     async def _load(self, item):
         self.now = item
         self.paused = False
+        await self._hide_idle_overlay()
         await self.mpv.command("loadfile", item["url"], "replace")
         await self.mpv.set_property("pause", False)
 
@@ -185,6 +215,7 @@ class Controller:
             await self.mpv.command("loadfile", IDLE_IMAGE, "replace")
         else:
             await self.mpv.command("stop")
+        await self._show_idle_overlay()
 
     # ---- public actions ----
     async def play(self, q):

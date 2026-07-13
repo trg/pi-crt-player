@@ -146,6 +146,9 @@ The control-core daemon wraps this socket and exposes the HTTP/JSON API; telnet
 to the console login; `now` reported the last thing *launched* (a stale
 in-memory string). Both were consequences of the one-shot design.
 
-**Idle screen — room to grow.** Right now idle is a black screen or a static
-`idle.png`. A nicer "attract mode" could show a clock, "telnet me to play
-something" instructions, now/next info, or a looping default playlist.
+**Idle screen — attract mode (implemented).** When the queue empties, mpv's
+OSD (libass) draws big green centred text over the black window — `play videos`
+and `telnet <hostname>.local` — so a guest sees how to drive it. Rendered as an
+`osd-overlay` on a small virtual canvas (large, CRT-readable glyphs; centred to
+clear overscan); no image tooling needed. Room to grow: a clock, now/next info,
+or a looping default playlist.

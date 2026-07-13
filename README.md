@@ -66,8 +66,9 @@ Manage it with `systemctl status/restart crt-player`.
   Because mpv stays alive between videos, the screen never drops back to the
   console login, and `now` always reflects true state.
 - The **queue** is managed by the daemon; when a video ends it auto-advances to
-  the next one, or shows the idle screen (drop a PNG at
-  `/usr/local/lib/pi-crt-player/idle.png` to customize it).
+  the next one, or shows the idle "attract" screen — big green text (`play
+  videos` / `telnet <host>.local`) so a guest knows how to drive it. (Drop a PNG
+  at `/usr/local/lib/pi-crt-player/idle.png` for a background behind the text.)
 - Two thin **frontends** talk to the daemon: the telnet server, and an
   **HTTP/JSON API** on `127.0.0.1:8677` (used by the `pcp` CLI, and ready to
   back a future box-hosted web UI — see [ROADMAP.md](ROADMAP.md)).
