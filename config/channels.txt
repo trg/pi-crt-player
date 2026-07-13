@@ -1,0 +1,26 @@
+# CRT Player channel lineup — one channel per line.
+#
+# Format:   <@handle or URL>   [| Display Name]
+#   - @handle          a YouTube handle, e.g. @NASA (its uploads become the channel)
+#   - URL              any channel / playlist URL yt-dlp understands
+#   - | Display Name   optional; shown on-screen and in the guide.
+#                      Omit it and the handle is used.
+#
+# Order = channel order: the first line is CH 1, the next CH 2, and so on
+# (the order you flip through with 'ch up' / 'ch down').
+# Blank lines and lines starting with '#' are ignored.
+#
+# After editing:  sudo systemctl restart crt-player
+#
+# --- starter lineup — replace with your own ---------------------------------
+
+@NASA        | NASA
+@kurzgesagt  | Kurzgesagt
+@veritasium  | Veritasium
+@NatGeo      | NatGeo
+@nprmusic    | Tiny Desk
+
+# Examples of other things you can put here:
+# @Computerphile
+# https://www.youtube.com/@3blue1brown/videos   | 3Blue1Brown
+# https://www.youtube.com/playlist?list=PL...    | My Playlist

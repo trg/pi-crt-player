@@ -31,21 +31,23 @@ SEARCH_COUNT = 8
 
 # ---- channel surfing (see ROADMAP §4) ----
 # A "channel" is a YouTube channel; its uploads become a never-ending stream.
-# The lineup is a small, hardcoded config file so it's deterministic, needs no
-# auth, and survives reboots. Edit CHANNELS_FILE to change it.
+# The lineup is a small, hardcoded text file so it's deterministic, needs no
+# auth, and survives reboots. One channel per line (see channels.txt / the
+# DEFAULT_CHANNELS below and load_channels for the format).
 CHANNELS_FILE = os.environ.get(
-    "CHANNELS_FILE", "/usr/local/lib/pi-crt-player/channels.json")
+    "CHANNELS_FILE", "/usr/local/lib/pi-crt-player/channels.txt")
 CHANNEL_TTL = int(os.environ.get("CHANNEL_TTL", str(6 * 3600)))  # cache uploads
 CHANNEL_MAX = 60           # videos pulled per channel (the programming loop)
 DEFAULT_PROG_SECS = 600    # assumed length when yt-dlp reports no duration
-# Starter lineup — REPLACE with your own channels (or edit channels.json).
-DEFAULT_CHANNELS = [
-    {"name": "NASA", "handle": "@NASA"},
-    {"name": "Kurzgesagt", "handle": "@kurzgesagt"},
-    {"name": "Veritasium", "handle": "@veritasium"},
-    {"name": "NatGeo", "handle": "@NatGeo"},
-    {"name": "Tiny Desk", "handle": "@nprmusic"},
-]
+# Starter lineup, in the same one-per-line format as channels.txt. REPLACE with
+# your own channels (edit channels.txt on the box — this is only the fallback).
+DEFAULT_CHANNELS = """\
+@NASA        | NASA
+@kurzgesagt  | Kurzgesagt
+@veritasium  | Veritasium
+@NatGeo      | NatGeo
+@nprmusic    | Tiny Desk
+"""
 
 # Channel-info banner: a channel/title overlay that pops up when you tune in and
 # fades out after a few seconds, like a TV. Drawn on the same small virtual
@@ -89,38 +91,54 @@ HELP = (
 )
 
 
-def load_channels():
-    """Load the channel lineup from CHANNELS_FILE, falling back to defaults.
+def _channel_entry(source, name=""):
+    """Turn one lineup line's source + optional name into {"name", "url"}.
 
-    Each entry needs a display "name" and either a full "url" (any yt-dlp
-    playlist/channel URL) or a YouTube "handle" (e.g. "@NASA"), which we turn
-    into the channel's uploads (/videos) feed.
+    `source` is a YouTube handle ("@NASA") or any full URL yt-dlp understands
+    (channel, playlist, etc.). Bare handles become the channel's /videos feed.
     """
-    raw = None
+    source = source.strip()
+    if not source:
+        return None
+    if source.startswith("http"):
+        url, label = source, (name.strip() or source)
+    else:
+        handle = source if source.startswith("@") else "@" + source
+        url = f"https://www.youtube.com/{handle}/videos"
+        label = name.strip() or handle.lstrip("@")
+    return {"name": label, "url": url}
+
+
+def _parse_channels(text):
+    """Parse the flat lineup format: one channel per line,
+
+        <@handle or URL>  [| Display Name]
+
+    Blank lines and lines starting with '#' are ignored. The order of the
+    lines is the channel order (CH 1, CH 2, ...).
+    """
+    channels = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        source, _, name = line.partition("|")
+        entry = _channel_entry(source, name)
+        if entry:
+            channels.append(entry)
+    return channels
+
+
+def load_channels():
+    """Load the channel lineup from CHANNELS_FILE, falling back to defaults."""
+    text = None
     if os.path.exists(CHANNELS_FILE):
         try:
             with open(CHANNELS_FILE, encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                raw = data.get("channels")
-        except (OSError, ValueError):
-            raw = None
-    if not raw:
-        raw = DEFAULT_CHANNELS
-
-    channels = []
-    for c in raw:
-        if not isinstance(c, dict):
-            continue
-        name = (c.get("name") or "").strip()
-        url = (c.get("url") or "").strip()
-        handle = (c.get("handle") or "").strip()
-        if not url and handle:
-            h = handle if handle.startswith("@") else "@" + handle
-            url = f"https://www.youtube.com/{h}/videos"
-        if url:
-            channels.append({"name": name or url, "url": url})
-    return channels
+                text = f.read()
+        except OSError:
+            text = None
+    return _parse_channels(text or "") or _parse_channels(DEFAULT_CHANNELS)
 
 
 # --------------------------------------------------------------------------

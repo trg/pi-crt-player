@@ -91,15 +91,40 @@ TV guide:
   the same time sees the same thing airing — no per-viewer randomness. It's an
   illusion of live TV, not a real schedule (YouTube has none).
 
-**The lineup** lives in `config/channels.json` (installed to
-`/usr/local/lib/pi-crt-player/channels.json`). Each entry is a display `name`
-plus either a `handle` (e.g. `@NASA`) or a full `url` to any yt-dlp-supported
-channel/playlist; the order there is the channel order. Edit it and
-`systemctl restart crt-player` to change channels. `setup.sh` installs it with
-`cp -n`, so it never overwrites a lineup you've customised on the box. The
-shipped list is a starter set — **swap in your own channels.**
+### Managing channels
 
-> The initial set is a hardcoded lineup (the MVP). Turning your private YouTube
+The lineup is a plain text file, **one channel per line** — no JSON, no
+restart-the-world. It lives at `config/channels.txt` in the repo and is
+installed to `/usr/local/lib/pi-crt-player/channels.txt` on the box.
+
+```
+# <@handle or URL>   [| Display Name]
+@NASA
+@kurzgesagt                                    | Kurzgesagt
+https://www.youtube.com/@3blue1brown/videos    | 3Blue1Brown
+https://www.youtube.com/playlist?list=PL...     | My Playlist
+```
+
+- The **source** is a YouTube handle (`@NASA`) or any channel/playlist URL
+  yt-dlp understands. A bare handle uses that channel's uploads.
+- After a `|` you can give a **display name** (shown on the banner and in the
+  guide). Leave it off and the handle is used.
+- **Order = channel order** — the first line is CH 1, the next CH 2, and so on
+  (what `ch up` / `ch down` flip through).
+- Blank lines and lines starting with `#` are ignored.
+
+To change the lineup on the box:
+
+```bash
+sudo nano /usr/local/lib/pi-crt-player/channels.txt   # add/remove/reorder lines
+sudo systemctl restart crt-player                     # reload the lineup
+```
+
+`setup.sh` installs the file with `cp -n`, so re-running it never overwrites a
+lineup you've customised on the box. The shipped list is a starter set —
+**swap in your own channels.**
+
+> This hardcoded lineup is the MVP. Turning your private YouTube
 > **subscriptions** into channels needs logged-in cookies on the box — see
 > [ROADMAP.md](ROADMAP.md) §4.
 

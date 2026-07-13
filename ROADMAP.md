@@ -160,7 +160,8 @@ or a looping default playlist.
 > **Status: MVP implemented** in `server/pcpd.py`. `surf` enters channel-surfing
 > mode; `ch up` / `ch down` flip channels (wrapping); `channels` / `guide` lists
 > the lineup; `next` skips to the next programme on-channel. The lineup is the
-> **hardcoded config** (`config/channels.json`, the easy path below), and the
+> **hardcoded config** (`config/channels.txt`, one channel per line — the easy
+> path below), and the
 > "now airing" programme is derived **deterministically from the wall clock**
 > via the simulated-broadcast model (option 2 below) — including a mid-programme
 > seek so viewers drop in "live". A green channel banner pops up on tune and
