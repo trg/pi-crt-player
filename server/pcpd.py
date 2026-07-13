@@ -183,8 +183,6 @@ class Controller:
     # ---- idle "attract" screen (green text over a black window) ----
     def _idle_ass(self):
         host = socket.gethostname() or "this-box"
-        if not host.endswith(".local"):
-            host += ".local"          # what a Mac/phone on the LAN dials via mDNS
         cx = IDLE_RES_X // 2
         # Press Start 2P is an ~square, wide pixel font, so text is laid out in
         # three centred lines and the (variable-length) hostname is auto-shrunk

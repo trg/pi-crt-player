@@ -148,7 +148,7 @@ in-memory string). Both were consequences of the one-shot design.
 
 **Idle screen — attract mode (implemented).** When the queue empties, mpv's
 OSD (libass) draws big green centred text over the black window — `play videos`
-and `telnet <hostname>.local` — so a guest sees how to drive it. Rendered as an
+and `telnet <hostname>` — so a guest sees how to drive it. Rendered as an
 `osd-overlay` on a small virtual canvas (large, CRT-readable glyphs; centred to
 clear overscan); no image tooling needed. Room to grow: a clock, now/next info,
 or a looping default playlist.

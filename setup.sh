@@ -56,4 +56,4 @@ echo "  now                             # what's playing + queue"
 echo "  next / stop"
 echo
 echo "Remote is live — anyone on the network can control the TV with:"
-echo "  telnet $(hostname).local     (or: telnet $(hostname -I | awk '{print $1}'))"
+echo "  telnet $(hostname)     (or: telnet $(hostname -I | awk '{print $1}'))"

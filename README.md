@@ -1,7 +1,8 @@
 # pi-crt-player
 
-Play YouTube videos on a small 4:3 CRT connected to a Raspberry Pi 4 (over HDMI),
-controlled entirely over SSH. Built for Raspberry Pi OS Lite (trixie) — no
+Play YouTube videos on a small 4:3 CRT connected to a Raspberry Pi 4 (over HDMI).
+Drive it from your terminal over SSH, or hand the TV to anyone on the network
+with a no-login telnet remote. Built for Raspberry Pi OS Lite (trixie) — no
 desktop environment required.
 
 ## Setup
@@ -67,8 +68,10 @@ Manage it with `systemctl status/restart crt-player`.
   console login, and `now` always reflects true state.
 - The **queue** is managed by the daemon; when a video ends it auto-advances to
   the next one, or shows the idle "attract" screen — big green text (`play
-  videos` / `telnet <host>.local`) so a guest knows how to drive it. (Drop a PNG
-  at `/usr/local/lib/pi-crt-player/idle.png` for a background behind the text.)
+  videos` / `telnet <host>`) in a retro arcade pixel font (Press Start 2P,
+  installed by `setup.sh`) so a guest knows how to drive it. It's drawn by mpv's
+  OSD, so no image tooling is needed. (Drop a PNG at
+  `/usr/local/lib/pi-crt-player/idle.png` for a background behind the text.)
 - Two thin **frontends** talk to the daemon: the telnet server, and an
   **HTTP/JSON API** on `127.0.0.1:8677` (used by the `pcp` CLI, and ready to
   back a future box-hosted web UI — see [ROADMAP.md](ROADMAP.md)).
