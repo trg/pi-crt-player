@@ -10,7 +10,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Installing mpv..."
 sudo apt update
-sudo apt install -y mpv wget python3
+sudo apt install -y mpv wget python3 fontconfig
+
+echo "==> Installing 'Press Start 2P' retro font for the idle screen..."
+sudo install -d /usr/local/share/fonts
+sudo wget -q \
+  https://github.com/google/fonts/raw/main/ofl/pressstart2p/PressStart2P-Regular.ttf \
+  -O /usr/local/share/fonts/PressStart2P-Regular.ttf
+sudo fc-cache -f /usr/local/share/fonts
 
 echo "==> Installing latest yt-dlp (apt's version rots as YouTube changes)..."
 sudo wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
