@@ -11,8 +11,7 @@ guests exactly how to connect:
 
 ```
         play videos
-          telnet
-         station
+      $ telnet station
 ```
 
 ## Using it (telnet)
@@ -65,7 +64,7 @@ yt-dlp as argument lists, never through a shell, so they can't inject commands.
   console login, and `now` always reflects true state.
 - The **queue** is managed by the daemon; when a video ends it auto-advances to
   the next one, or shows the idle "attract" screen — big green text (`play
-  videos` / `telnet <host>`) in a retro arcade pixel font (Press Start 2P,
+  videos` / `$ telnet <host>`) in a retro arcade pixel font (Press Start 2P,
   installed by `setup.sh`). It's drawn by mpv's OSD, so no image tooling is
   needed. (Drop a PNG at `/usr/local/lib/pi-crt-player/idle.png` for a
   background behind the text.)

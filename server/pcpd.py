@@ -186,16 +186,16 @@ class Controller:
         host = socket.gethostname() or "this-box"
         cx = IDLE_RES_X // 2
         # Press Start 2P is an ~square, wide pixel font, so text is laid out in
-        # three centred lines and the (variable-length) hostname is auto-shrunk
+        # two centred lines and the (variable-length) command line is auto-shrunk
         # to fit the tube. \fn falls back to the default face if the font is
         # missing, so the screen still works before setup installs it.
         base = (r"\an5\fn%s\bord2\shad0\blur0.6"
                 r"\1c&H00FF00&\3c&H001500&") % IDLE_FONT
-        host_fs = max(9, min(18, (IDLE_RES_X - 24) // max(len(host), 1)))
-        line1 = r"{%s\pos(%d,%d)\fs26}play videos" % (base, cx, 74)
-        line2 = r"{%s\pos(%d,%d)\fs16}telnet" % (base, cx, 138)
-        line3 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 170, host_fs, host)
-        return "\n".join((line1, line2, line3))
+        cmd = "$ telnet " + host
+        cmd_fs = max(9, min(20, (IDLE_RES_X - 24) // max(len(cmd), 1)))
+        line1 = r"{%s\pos(%d,%d)\fs26}play videos" % (base, cx, 96)
+        line2 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 152, cmd_fs, cmd)
+        return line1 + "\n" + line2
 
     async def _show_idle_overlay(self):
         await self.mpv.command(
