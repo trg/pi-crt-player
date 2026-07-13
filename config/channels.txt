@@ -15,10 +15,17 @@
 # --- starter lineup — replace with your own ---------------------------------
 
 @NASA        | NASA
-@kurzgesagt  | Kurzgesagt
-@veritasium  | Veritasium
-@NatGeo      | NatGeo
+@NatGeo      | National Geographic
 @nprmusic    | Tiny Desk
+@SteveShives | Steve Shives
+@any_austin  | any_austin
+@Drachinifel | Drachinifel
+@legendsofsoapboxracing | Legends of Soapbox Racing
+@MST3K       | Mystery Science Theater 3000
+@historigraph | Historigraph
+@campingwithsteve | Camping with Steve
+@OfficialWKUK | WKUK
+
 
 # Examples of other things you can put here:
 # @Computerphile
