@@ -12,6 +12,9 @@ how it's invoked (argv[0]), or as the first argument to `pcp`.
     now                          show what's playing + queue
     pcp search <words>           search (numbered list)
     pcp clear | pcp pause        clear queue / pause-resume
+    pcp surf                     channel-surfing mode (live TV feel)
+    pcp ch up | pcp ch down      flip channels while surfing
+    pcp channels                 the TV guide (list channels)
 """
 import json
 import os
@@ -23,7 +26,8 @@ HOST = os.environ.get("PCP_HOST", "127.0.0.1")
 PORT = os.environ.get("PCP_PORT", "8677")
 BASE = f"http://{HOST}:{PORT}"
 
-CMDS = {"play", "queue", "stop", "next", "now", "status", "clear", "pause", "search"}
+CMDS = {"play", "queue", "stop", "next", "now", "status", "clear", "pause",
+        "search", "surf", "ch", "channels", "guide"}
 
 
 def call(method, path, data=None):
@@ -47,9 +51,28 @@ def show(cmd, r):
         for i, it in enumerate(r.get("results", []), 1):
             print(f"{i:2}) {it['title']}")
         return
+    if cmd in ("channels", "guide"):
+        for c in r.get("channels", []):
+            mark = ">" if c.get("current") else " "
+            print(f" {mark} CH {c['num']:>2}  {c['name']}")
+        if r.get("surfing") and r.get("now"):
+            print("now airing: " + r["now"]["title"])
+        return
+    if cmd in ("surf", "ch"):
+        ch, now = r.get("channel"), r.get("now")
+        if ch:
+            print(f"CH {ch['num']} — {ch['name']}")
+        if now:
+            print(f"now airing: {now['title']}")
+        return
     if cmd in ("now", "status", "next"):
         now = r.get("now")
-        line = ("now playing: " + now["title"]) if now else "nothing playing"
+        ch = r.get("channel")
+        if r.get("surfing") and ch:
+            title = now["title"] if now else "…"
+            line = f"surfing CH {ch['num']} ({ch['name']}) — {title}"
+        else:
+            line = ("now playing: " + now["title"]) if now else "nothing playing"
         if now and r.get("paused"):
             line += " (paused)"
         print(line)
@@ -75,11 +98,14 @@ def main():
     elif len(sys.argv) > 1 and sys.argv[1] in CMDS:
         cmd, args = sys.argv[1], sys.argv[2:]
     else:
-        sys.exit("usage: pcp {play|queue|stop|next|now|clear|pause|search} ...")
+        sys.exit("usage: pcp {play|queue|stop|next|now|clear|pause|search|"
+                 "surf|ch|channels} ...")
 
     q = " ".join(args).strip()
     if cmd in ("play", "queue", "search") and not q:
         sys.exit(f"usage: {cmd} <url | search terms>")
+    if cmd == "ch" and q.lower() not in ("up", "down", "+", "-", "u", "d"):
+        sys.exit("usage: ch up | ch down")
 
     if cmd == "play":
         r = call("POST", "/play", {"q": q})
@@ -95,6 +121,13 @@ def main():
         r = call("POST", "/clear")
     elif cmd == "pause":
         r = call("POST", "/pause")
+    elif cmd == "surf":
+        r = call("POST", "/surf")
+    elif cmd == "ch":
+        d = "up" if q.lower() in ("up", "+", "u") else "down"
+        r = call("POST", "/channel", {"dir": d})
+    elif cmd in ("channels", "guide"):
+        r = call("GET", "/channels")
     else:  # now / status
         r = call("GET", "/status")
 

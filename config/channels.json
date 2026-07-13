@@ -1,0 +1,10 @@
+{
+  "_comment": "Channel-surfing lineup (ROADMAP §4). Each entry needs a 'name' and either a 'handle' (e.g. @NASA) or a full 'url' to any yt-dlp-supported channel/playlist. Order here is the channel order (CH 1, CH 2, ...) you flip through with 'ch up' / 'ch down'. Edit freely and restart the crt-player service. setup.sh installs this with 'cp -n' so it never clobbers your edits.",
+  "channels": [
+    { "name": "NASA",       "handle": "@NASA" },
+    { "name": "Kurzgesagt", "handle": "@kurzgesagt" },
+    { "name": "Veritasium", "handle": "@veritasium" },
+    { "name": "NatGeo",     "handle": "@NatGeo" },
+    { "name": "Tiny Desk",  "handle": "@nprmusic" }
+  ]
+}
