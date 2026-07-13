@@ -67,5 +67,6 @@ See `config/mpv.conf` for the tunables (resolution, aspect/panscan, format).
 
 ## Roadmap
 
-- Queue / playlist support (play several in a row).
-- `now` should read the actual mpv title rather than the last thing launched.
+See [ROADMAP.md](ROADMAP.md) — multi-provider support (and the DRM wall that
+blocks Paramount+/Hulu/HBO through mpv), a video queue, and idle-screen /
+accurate-`now` improvements.
