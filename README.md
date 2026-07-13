@@ -9,7 +9,7 @@ desktop environment required.
 On a fresh Pi:
 
 ```bash
-git clone <this-repo> pi-crt-player
+git clone https://github.com/trg/pi-crt-player.git
 cd pi-crt-player
 ./setup.sh
 ```
