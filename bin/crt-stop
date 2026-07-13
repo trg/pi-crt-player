@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# crt-stop — stop whatever is playing on the CRT.
+set -euo pipefail
+
+if pkill -x mpv 2>/dev/null; then
+  echo "stopped."
+else
+  echo "nothing playing."
+fi
