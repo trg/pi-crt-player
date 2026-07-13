@@ -84,7 +84,7 @@ HELP = (
     "  clear                empty the queue, keep the current video\r\n"
     "  now                  what's playing + queue\r\n"
     "  surf                 channel-surfing mode (live TV feel)\r\n"
-    "  ch up | ch down      flip channels while surfing\r\n"
+    "  ch up | ch down | ch <n>   flip / jump to a channel while surfing\r\n"
     "  channels | guide     the TV guide (list channels)\r\n"
     "  help                 show this help\r\n"
     "  quit                 disconnect\r\n"
@@ -488,6 +488,14 @@ class Controller:
         base = self.channel_idx if self.surfing else self.channel_idx - delta
         return await self._tune((base + delta) % len(self.channels))
 
+    async def channel_to(self, num):
+        """Tune directly to channel `num` (1-based, as shown in the guide)."""
+        if not self.channels:
+            return {"error": "no channels configured"}
+        if not 1 <= num <= len(self.channels):
+            return {"error": f"no channel {num} (1-{len(self.channels)})"}
+        return await self._tune(num - 1)
+
     async def _advance_program(self):
         """A programme ended (or `next` while surfing) -> next one on-channel."""
         videos = await self._channel_videos(self.channel_idx)
@@ -769,18 +777,20 @@ def telnet_handler(controller):
                 send(fmt_surf(await controller.surf()))
             elif cmd == "ch":
                 a = arg.lower()
+                coro = None
                 if a in ("up", "+", "u"):
-                    delta = 1
+                    coro = controller.channel_step(1)
                 elif a in ("down", "-", "d", "dn"):
-                    delta = -1
+                    coro = controller.channel_step(-1)
+                elif a.isdigit():
+                    coro = controller.channel_to(int(a))
                 else:
-                    delta = None
-                    send("usage: ch up | ch down\r\n")
-                if delta is not None:
+                    send("usage: ch up | ch down | ch <n>\r\n")
+                if coro is not None:
                     send("tuning...\r\n")
                     if not await flush():
                         break
-                    send(fmt_surf(await controller.channel_step(delta)))
+                    send(fmt_surf(await coro))
             elif cmd in ("channels", "guide"):
                 send(fmt_channels(controller.channels_info()))
             else:
@@ -826,12 +836,17 @@ async def route(c, method, path, data):
     if method == "POST" and path == "/surf":
         return await c.surf(), 200
     if method == "POST" and path == "/channel":
+        if data.get("num") is not None:
+            try:
+                return await c.channel_to(int(data["num"])), 200
+            except (TypeError, ValueError):
+                return {"error": "num must be an integer"}, 200
         d = (data.get("dir") or "").lower()
         if d in ("up", "+"):
             return await c.channel_step(1), 200
         if d in ("down", "-"):
             return await c.channel_step(-1), 200
-        return {"error": "dir must be up or down"}, 200
+        return {"error": "channel needs dir (up/down) or num"}, 200
     if (method in ("GET", "POST")) and path.startswith("/channels"):
         return c.channels_info(), 200
     return {"error": "not found"}, 404

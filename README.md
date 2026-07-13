@@ -51,6 +51,7 @@ Commands:
 | `clear`                | empty the queue, keep the current video playing  |
 | `surf`                 | channel-surfing mode — tune in like a TV         |
 | `ch up` / `ch down`    | flip to the next / previous channel while surfing|
+| `ch <n>`               | jump straight to channel `n` (as in the guide)   |
 | `channels` / `guide`   | the TV guide — list channels, mark what's on     |
 | `help`                 | show the command list                            |
 | `quit`                 | disconnect                                        |
@@ -80,9 +81,10 @@ TV guide:
    CH  5  Tiny Desk
 ```
 
-- `ch up` / `ch down` flip channels (they wrap around). `next` jumps to the next
-  programme on the current channel; `stop` (or any `play`/`queue`) leaves surf
-  mode and returns to normal.
+- `ch up` / `ch down` flip channels (they wrap around), and `ch <n>` jumps
+  straight to a channel by its guide number. `next` jumps to the next programme
+  on the current channel; `stop` (or any `play`/`queue`) leaves surf mode and
+  returns to normal.
 - When you tune in, a green **channel banner** (number, name, title) pops up on
   the CRT for a few seconds and then fades out, the way a real TV does.
 - What's "on" is **deterministic from the wall clock**: each channel's uploads

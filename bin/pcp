@@ -13,7 +13,7 @@ how it's invoked (argv[0]), or as the first argument to `pcp`.
     pcp search <words>           search (numbered list)
     pcp clear | pcp pause        clear queue / pause-resume
     pcp surf                     channel-surfing mode (live TV feel)
-    pcp ch up | pcp ch down      flip channels while surfing
+    pcp ch up | ch down | ch <n> flip / jump to a channel while surfing
     pcp channels                 the TV guide (list channels)
 """
 import json
@@ -104,8 +104,9 @@ def main():
     q = " ".join(args).strip()
     if cmd in ("play", "queue", "search") and not q:
         sys.exit(f"usage: {cmd} <url | search terms>")
-    if cmd == "ch" and q.lower() not in ("up", "down", "+", "-", "u", "d"):
-        sys.exit("usage: ch up | ch down")
+    if cmd == "ch" and not (q.lower() in ("up", "down", "+", "-", "u", "d")
+                            or q.isdigit()):
+        sys.exit("usage: ch up | ch down | ch <n>")
 
     if cmd == "play":
         r = call("POST", "/play", {"q": q})
@@ -124,8 +125,11 @@ def main():
     elif cmd == "surf":
         r = call("POST", "/surf")
     elif cmd == "ch":
-        d = "up" if q.lower() in ("up", "+", "u") else "down"
-        r = call("POST", "/channel", {"dir": d})
+        if q.isdigit():
+            r = call("POST", "/channel", {"num": int(q)})
+        else:
+            d = "up" if q.lower() in ("up", "+", "u") else "down"
+            r = call("POST", "/channel", {"dir": d})
     elif cmd in ("channels", "guide"):
         r = call("GET", "/channels")
     else:  # now / status
