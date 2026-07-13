@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import socket
+import time
 
 MPV = "/usr/bin/mpv"
 YT_DLP = "/usr/local/bin/yt-dlp"
@@ -27,6 +28,31 @@ HTTP_HOST = os.environ.get("HTTP_HOST", "127.0.0.1")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "8677"))
 IDLE_IMAGE = os.environ.get("IDLE_IMAGE", "/usr/local/lib/pi-crt-player/idle.png")
 SEARCH_COUNT = 8
+
+# ---- channel surfing (see ROADMAP §4) ----
+# A "channel" is a YouTube channel; its uploads become a never-ending stream.
+# The lineup is a small, hardcoded config file so it's deterministic, needs no
+# auth, and survives reboots. Edit CHANNELS_FILE to change it.
+CHANNELS_FILE = os.environ.get(
+    "CHANNELS_FILE", "/usr/local/lib/pi-crt-player/channels.json")
+CHANNEL_TTL = int(os.environ.get("CHANNEL_TTL", str(6 * 3600)))  # cache uploads
+CHANNEL_MAX = 60           # videos pulled per channel (the programming loop)
+DEFAULT_PROG_SECS = 600    # assumed length when yt-dlp reports no duration
+# Starter lineup — REPLACE with your own channels (or edit channels.json).
+DEFAULT_CHANNELS = [
+    {"name": "NASA", "handle": "@NASA"},
+    {"name": "Kurzgesagt", "handle": "@kurzgesagt"},
+    {"name": "Veritasium", "handle": "@veritasium"},
+    {"name": "NatGeo", "handle": "@NatGeo"},
+    {"name": "Tiny Desk", "handle": "@nprmusic"},
+]
+
+# Channel-info banner: a channel/title overlay that pops up when you tune in and
+# fades out after a few seconds, like a TV. Drawn on the same small virtual
+# canvas as the idle screen (see Controller._idle_ass) for CRT-readable glyphs.
+INFO_OVERLAY_ID = 48
+INFO_HOLD = float(os.environ.get("INFO_HOLD", "5"))   # seconds fully visible
+INFO_FADE = float(os.environ.get("INFO_FADE", "1.2"))  # seconds to fade out
 
 # Idle "attract" screen: big green text drawn by mpv's OSD (libass) when
 # nothing is playing. Small virtual canvas => large, CRT-readable glyphs; text
@@ -55,9 +81,46 @@ HELP = (
     "  stop                 stop and clear the queue\r\n"
     "  clear                empty the queue, keep the current video\r\n"
     "  now                  what's playing + queue\r\n"
+    "  surf                 channel-surfing mode (live TV feel)\r\n"
+    "  ch up | ch down      flip channels while surfing\r\n"
+    "  channels | guide     the TV guide (list channels)\r\n"
     "  help                 show this help\r\n"
     "  quit                 disconnect\r\n"
 )
+
+
+def load_channels():
+    """Load the channel lineup from CHANNELS_FILE, falling back to defaults.
+
+    Each entry needs a display "name" and either a full "url" (any yt-dlp
+    playlist/channel URL) or a YouTube "handle" (e.g. "@NASA"), which we turn
+    into the channel's uploads (/videos) feed.
+    """
+    raw = None
+    if os.path.exists(CHANNELS_FILE):
+        try:
+            with open(CHANNELS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                raw = data.get("channels")
+        except (OSError, ValueError):
+            raw = None
+    if not raw:
+        raw = DEFAULT_CHANNELS
+
+    channels = []
+    for c in raw:
+        if not isinstance(c, dict):
+            continue
+        name = (c.get("name") or "").strip()
+        url = (c.get("url") or "").strip()
+        handle = (c.get("handle") or "").strip()
+        if not url and handle:
+            h = handle if handle.startswith("@") else "@" + handle
+            url = f"https://www.youtube.com/{h}/videos"
+        if url:
+            channels.append({"name": name or url, "url": url})
+    return channels
 
 
 # --------------------------------------------------------------------------
@@ -140,6 +203,15 @@ class Controller:
         self.now = None      # currently playing {"title", "url"} or None
         self.paused = False
 
+        # channel surfing
+        self.channels = load_channels()
+        self.surfing = False
+        self.channel_idx = 0           # which channel we're tuned to
+        self.prog_idx = 0              # position within that channel's loop
+        self._chan_cache = {}          # channel_idx -> (fetched_ts, [videos])
+        self._pending_seek = None      # seconds to seek to once the file loads
+        self._info_task = None         # background task drawing the info banner
+
     # ---- yt-dlp resolution (network; kept outside the lock) ----
     async def _yt(self, *args, timeout=45):
         proc = await asyncio.create_subprocess_exec(
@@ -211,6 +283,9 @@ class Controller:
     async def _load(self, item):
         self.now = item
         self.paused = False
+        self.surfing = False          # any explicit play/queue leaves surf mode
+        self._pending_seek = None
+        await self._clear_info()
         await self._hide_idle_overlay()
         await self.mpv.command("loadfile", item["url"], "replace")
         await self.mpv.set_property("pause", False)
@@ -218,6 +293,9 @@ class Controller:
     async def _go_idle(self):
         self.now = None
         self.paused = False
+        self.surfing = False
+        self._pending_seek = None
+        await self._clear_info()
         if os.path.exists(IDLE_IMAGE):
             await self.mpv.command("loadfile", IDLE_IMAGE, "replace")
         else:
@@ -258,7 +336,10 @@ class Controller:
                 await self._go_idle()
 
     async def next(self):
-        await self.advance()
+        if self.surfing:
+            await self._advance_program()   # skip to the next programme
+        else:
+            await self.advance()
         return self.status()
 
     async def stop(self):
@@ -281,19 +362,205 @@ class Controller:
             return {"paused": self.paused}
 
     def status(self):
-        return {
+        st = {
             "now": self.now,
             "playing": self.now is not None,
             "paused": self.paused,
             "queue": list(self.queue),
+            "surfing": self.surfing,
         }
+        if self.surfing and self.channels:
+            ch = self.channels[self.channel_idx]
+            st["channel"] = {"num": self.channel_idx + 1, "name": ch["name"]}
+        return st
 
-    # ---- mpv events: auto-advance when a video finishes ----
+    # ------------------------------------------------------------------
+    # channel surfing (see ROADMAP §4)
+    # ------------------------------------------------------------------
+    async def _yt_channel(self, url):
+        """Resolve a channel URL to its programming loop: [{title,url,dur,est}]."""
+        out = await self._yt(
+            "--flat-playlist", "--no-warnings",
+            "--playlist-end", str(CHANNEL_MAX),
+            "--print", "%(title)s\t%(id)s\t%(duration)s",
+            url, timeout=60,
+        )
+        videos = []
+        for line in out.splitlines():
+            cols = line.split("\t")
+            if len(cols) < 2 or not cols[1].strip():
+                continue
+            vid = cols[1].strip()
+            try:
+                dur = int(float(cols[2]))
+            except (ValueError, IndexError):
+                dur = 0
+            est = dur <= 0            # unknown length -> we only estimate it
+            videos.append({
+                "title": cols[0].strip() or "(untitled)",
+                "url": f"https://www.youtube.com/watch?v={vid}",
+                "dur": dur if dur > 0 else DEFAULT_PROG_SECS,
+                "est": est,
+            })
+        return videos
+
+    async def _channel_videos(self, idx):
+        """Cached programming for a channel (TTL) so surfing doesn't re-fetch."""
+        ent = self._chan_cache.get(idx)
+        if ent and (time.time() - ent[0]) < CHANNEL_TTL and ent[1]:
+            return ent[1]
+        videos = await self._yt_channel(self.channels[idx]["url"])
+        if videos:
+            self._chan_cache[idx] = (time.time(), videos)
+        return videos
+
+    def _schedule(self, videos):
+        """Deterministic (programme index, offset) from the wall clock.
+
+        The channel's loop is treated as an endless broadcast: total runtime is
+        the sum of the videos' durations, and 'now' maps to a fixed position in
+        that timeline. Everyone surfing at the same moment sees the same thing
+        'airing' — no per-viewer randomness. Videos with unknown length still
+        occupy a slot (DEFAULT_PROG_SECS) but we don't seek into them (est).
+        """
+        total = sum(v["dur"] for v in videos)
+        if total <= 0:
+            return 0, 0
+        pos = time.time() % total
+        for i, v in enumerate(videos):
+            if pos < v["dur"]:
+                return i, (0 if v["est"] else int(pos))
+            pos -= v["dur"]
+        return 0, 0
+
+    async def _load_program(self, item, offset):
+        """Load a channel programme, seeking to `offset` once it has loaded."""
+        self.now = {"title": item["title"], "url": item["url"]}
+        self.paused = False
+        self._pending_seek = offset if offset > 0 else None
+        await self._hide_idle_overlay()
+        await self.mpv.command("loadfile", item["url"], "replace")
+        await self.mpv.set_property("pause", False)
+
+    async def _tune(self, idx):
+        """Tune to channel `idx`: play whatever is 'airing' there right now."""
+        if not self.channels:
+            return {"error": "no channels configured"}
+        videos = await self._channel_videos(idx)   # network; outside the lock
+        if not videos:
+            return {"error": f"channel '{self.channels[idx]['name']}' unavailable"}
+        self.channel_idx = idx
+        self.surfing = True
+        self.prog_idx, offset = self._schedule(videos)
+        item = videos[self.prog_idx]
+        async with self.lock:
+            await self._load_program(item, offset)
+        self._announce(idx, item)
+        return {"channel": {"num": idx + 1, "name": self.channels[idx]["name"]},
+                "now": {"title": item["title"], "url": item["url"]}}
+
+    async def surf(self):
+        """Enter channel-surfing mode, tuned to the current channel."""
+        return await self._tune(self.channel_idx)
+
+    async def channel_step(self, delta):
+        """Flip channels (delta +1 = up, -1 = down); wraps around the lineup."""
+        if not self.channels:
+            return {"error": "no channels configured"}
+        base = self.channel_idx if self.surfing else self.channel_idx - delta
+        return await self._tune((base + delta) % len(self.channels))
+
+    async def _advance_program(self):
+        """A programme ended (or `next` while surfing) -> next one on-channel."""
+        videos = await self._channel_videos(self.channel_idx)
+        if not videos:
+            async with self.lock:
+                await self._go_idle()
+            return
+        self.prog_idx = (self.prog_idx + 1) % len(videos)
+        item = videos[self.prog_idx]
+        async with self.lock:
+            await self._load_program(item, 0)
+        self._announce(self.channel_idx, item)
+
+    def channels_info(self):
+        """TV guide data: the lineup, which channel is on, what's airing."""
+        cur = self.channel_idx if self.surfing else None
+        chans = [{"num": i + 1, "name": c["name"], "current": (i == cur)}
+                 for i, c in enumerate(self.channels)]
+        return {"channels": chans, "surfing": self.surfing,
+                "now": self.now if self.surfing else None}
+
+    # ---- channel-info banner (pops up on tune, then fades like a TV) ----
+    @staticmethod
+    def _ass_escape(s):
+        # Keep user/video text from breaking the ASS override syntax.
+        return s.replace("\\", "/").replace("{", "(").replace("}", ")")
+
+    def _info_ass(self, idx, item, alpha="00"):
+        ch = self.channels[idx]
+        cx = IDLE_RES_X // 2
+        base = (r"\an5\fn%s\bord2\shad0\blur0.6\alpha&H%s&"
+                r"\1c&H00FF00&\3c&H001500&") % (IDLE_FONT, alpha)
+        header = self._ass_escape("CH%d  %s" % (idx + 1, ch["name"].upper()))
+        title = self._ass_escape(item["title"])
+        h_fs = max(9, min(18, (IDLE_RES_X - 24) // max(len(header), 1)))
+        t_fs = max(8, min(14, (IDLE_RES_X - 16) // max(len(title), 1)))
+        l1 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 176, h_fs, header)
+        l2 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 204, t_fs, title)
+        return l1 + "\n" + l2
+
+    async def _show_info(self, ass):
+        await self.mpv.command(
+            "osd-overlay", INFO_OVERLAY_ID, "ass-events", ass,
+            IDLE_RES_X, IDLE_RES_Y, 0, False)
+
+    async def _hide_info(self):
+        await self.mpv.command(
+            "osd-overlay", INFO_OVERLAY_ID, "none", "",
+            IDLE_RES_X, IDLE_RES_Y, 0, False)
+
+    async def _clear_info(self):
+        if self._info_task and not self._info_task.done():
+            self._info_task.cancel()
+        self._info_task = None
+        await self._hide_info()
+
+    def _announce(self, idx, item):
+        # Replace any in-flight banner (fast surfing) with the new one.
+        if self._info_task and not self._info_task.done():
+            self._info_task.cancel()
+        self._info_task = asyncio.create_task(self._info_banner(idx, item))
+
+    async def _info_banner(self, idx, item):
+        try:
+            await self._show_info(self._info_ass(idx, item, "00"))
+            await asyncio.sleep(INFO_HOLD)
+            steps = 8
+            for s in range(1, steps + 1):
+                alpha = "%02X" % min(255, int(255 * s / steps))
+                await self._show_info(self._info_ass(idx, item, alpha))
+                await asyncio.sleep(INFO_FADE / steps)
+            await self._hide_info()
+        except asyncio.CancelledError:
+            # A newer banner is taking over — it will redraw the overlay.
+            raise
+
+    # ---- mpv events: seek on load, auto-advance when a video finishes ----
     async def on_event(self, ev):
-        if ev.get("event") == "end-file" and ev.get("reason") in ("eof", "error"):
+        # This runs inside the mpv socket read loop, so it must NOT await any
+        # mpv command (the reply is read by this same loop) or a slow network
+        # fetch — either would stall event delivery. Hand the work to a task.
+        e = ev.get("event")
+        if e == "file-loaded" and self._pending_seek is not None:
+            # Drop into the programme mid-broadcast (the "live TV" illusion).
+            offset, self._pending_seek = self._pending_seek, None
+            asyncio.create_task(self.mpv.command("seek", offset, "absolute"))
+        elif e == "end-file" and ev.get("reason") in ("eof", "error"):
             # Natural end (or a broken file) -> move on. Our own loadfile/stop
             # produce reason "stop"/"redirect", which we deliberately ignore.
-            await self.advance()
+            asyncio.create_task(
+                self._advance_program() if self.surfing else self.advance())
 
 
 # --------------------------------------------------------------------------
@@ -337,11 +604,39 @@ def fmt_status(st):
                  + (" (paused)" if st.get("paused") else "")]
     else:
         lines = ["nothing playing"]
+    ch = st.get("channel")
+    if st.get("surfing") and ch:
+        lines[0] = f"surfing CH {ch['num']} ({ch['name']}) — " + (
+            now["title"] if now else "…")
     q = st.get("queue", [])
     if q:
         lines.append("up next:")
         for i, it in enumerate(q, 1):
             lines.append(f"  {i}) {it['title']}")
+    return "\r\n".join(lines) + "\r\n"
+
+
+def fmt_surf(r):
+    if r.get("error"):
+        return f"error: {r['error']}\r\n"
+    ch, now = r.get("channel"), r.get("now")
+    out = ""
+    if ch:
+        out += f"CH {ch['num']} — {ch['name']}\r\n"
+    if now:
+        out += f"now airing: {now['title']}\r\n"
+    return out or "ok\r\n"
+
+
+def fmt_channels(info):
+    lines = ["TV guide:"]
+    for c in info.get("channels", []):
+        mark = ">" if c["current"] else " "
+        lines.append(f" {mark} CH {c['num']:>2}  {c['name']}")
+    if info.get("surfing") and info.get("now"):
+        lines.append("now airing: " + info["now"]["title"])
+    else:
+        lines.append("type 'surf' to start, then 'ch up' / 'ch down'.")
     return "\r\n".join(lines) + "\r\n"
 
 
@@ -449,6 +744,27 @@ def telnet_handler(controller):
                     send(f"error: {r['error']}\r\n")
                 else:
                     send("paused.\r\n" if r["paused"] else "resumed.\r\n")
+            elif cmd == "surf":
+                send("tuning in...\r\n")
+                if not await flush():
+                    break
+                send(fmt_surf(await controller.surf()))
+            elif cmd == "ch":
+                a = arg.lower()
+                if a in ("up", "+", "u"):
+                    delta = 1
+                elif a in ("down", "-", "d", "dn"):
+                    delta = -1
+                else:
+                    delta = None
+                    send("usage: ch up | ch down\r\n")
+                if delta is not None:
+                    send("tuning...\r\n")
+                    if not await flush():
+                        break
+                    send(fmt_surf(await controller.channel_step(delta)))
+            elif cmd in ("channels", "guide"):
+                send(fmt_channels(controller.channels_info()))
             else:
                 send(f"unknown command: {cmd}  (try 'help')\r\n")
 
@@ -489,6 +805,17 @@ async def route(c, method, path, data):
         return await c.clear(), 200
     if method == "POST" and path == "/pause":
         return await c.pause(), 200
+    if method == "POST" and path == "/surf":
+        return await c.surf(), 200
+    if method == "POST" and path == "/channel":
+        d = (data.get("dir") or "").lower()
+        if d in ("up", "+"):
+            return await c.channel_step(1), 200
+        if d in ("down", "-"):
+            return await c.channel_step(-1), 200
+        return {"error": "dir must be up or down"}, 200
+    if (method in ("GET", "POST")) and path.startswith("/channels"):
+        return c.channels_info(), 200
     return {"error": "not found"}, 404
 
 

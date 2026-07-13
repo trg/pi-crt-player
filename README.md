@@ -45,16 +45,63 @@ Commands:
 | `play <n\|url\|words>` | play now (`n` picks from the last search)        |
 | `queue <n\|url\|words>`| add to the queue (plays now if nothing is on)    |
 | `list` / `now`         | show what's playing + the queue                  |
-| `next`                 | skip to the next queued video                    |
+| `next`                 | skip to the next queued video (next channel programme while surfing) |
 | `pause`                | pause / resume                                   |
 | `stop`                 | stop and clear the queue (back to attract screen)|
 | `clear`                | empty the queue, keep the current video playing  |
+| `surf`                 | channel-surfing mode — tune in like a TV         |
+| `ch up` / `ch down`    | flip to the next / previous channel while surfing|
+| `channels` / `guide`   | the TV guide — list channels, mark what's on     |
 | `help`                 | show the command list                            |
 | `quit`                 | disconnect                                        |
 
 It's an **open, unauthenticated** service — anyone who can reach the Pi can
 control playback (a home-network remote, by design). Search terms are passed to
 yt-dlp as argument lists, never through a shell, so they can't inject commands.
+
+## Channel surfing
+
+Type `surf` to turn the box into a TV. Each **channel is a YouTube channel** —
+its uploads become a never-ending programme. Flip through them like a remote:
+
+```
+> surf
+CH 1 — NASA
+now airing: Artemis II Mission Overview
+> ch up
+CH 2 — Kurzgesagt
+now airing: What Is Life?
+> channels
+TV guide:
+ > CH  2  Kurzgesagt
+   CH  1  NASA
+   CH  3  Veritasium
+   CH  4  NatGeo
+   CH  5  Tiny Desk
+```
+
+- `ch up` / `ch down` flip channels (they wrap around). `next` jumps to the next
+  programme on the current channel; `stop` (or any `play`/`queue`) leaves surf
+  mode and returns to normal.
+- When you tune in, a green **channel banner** (number, name, title) pops up on
+  the CRT for a few seconds and then fades out, the way a real TV does.
+- What's "on" is **deterministic from the wall clock**: each channel's uploads
+  are laid out as one long broadcast loop and the current moment maps to a fixed
+  position in it, so tuning in drops you *mid-programme* and everyone surfing at
+  the same time sees the same thing airing — no per-viewer randomness. It's an
+  illusion of live TV, not a real schedule (YouTube has none).
+
+**The lineup** lives in `config/channels.json` (installed to
+`/usr/local/lib/pi-crt-player/channels.json`). Each entry is a display `name`
+plus either a `handle` (e.g. `@NASA`) or a full `url` to any yt-dlp-supported
+channel/playlist; the order there is the channel order. Edit it and
+`systemctl restart crt-player` to change channels. `setup.sh` installs it with
+`cp -n`, so it never overwrites a lineup you've customised on the box. The
+shipped list is a starter set — **swap in your own channels.**
+
+> The initial set is a hardcoded lineup (the MVP). Turning your private YouTube
+> **subscriptions** into channels needs logged-in cookies on the box — see
+> [ROADMAP.md](ROADMAP.md) §4.
 
 ## How it works
 
@@ -112,6 +159,9 @@ pcp search apollo 11 restored   # numbered search results
 pcp pause                       # pause / resume
 pcp clear                       # empty the queue, keep the current video
 pcp status                      # same as `now`
+pcp surf                        # start channel surfing
+pcp ch up                       # flip channels (also: pcp ch down)
+pcp channels                    # the TV guide
 ```
 
 These are thin clients over the daemon's HTTP API, so they work regardless of

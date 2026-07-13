@@ -157,6 +157,16 @@ or a looping default playlist.
 
 ## 4. Channel surfing + TV guide
 
+> **Status: MVP implemented** in `server/pcpd.py`. `surf` enters channel-surfing
+> mode; `ch up` / `ch down` flip channels (wrapping); `channels` / `guide` lists
+> the lineup; `next` skips to the next programme on-channel. The lineup is the
+> **hardcoded config** (`config/channels.json`, the easy path below), and the
+> "now airing" programme is derived **deterministically from the wall clock**
+> via the simulated-broadcast model (option 2 below) — including a mid-programme
+> seek so viewers drop in "live". A green channel banner pops up on tune and
+> fades out. Still to do: **auto channels from subscriptions** (needs cookies)
+> and a **full retro guide screen** on the CRT (only a text listing today).
+
 Make the box feel like an actual TV: **each YouTube channel is a "channel"** you
 flip through, with a **TV guide** showing what's on. Leans hard into the CRT
 aesthetic and fits the control core cleanly — a "channel" is just another source
