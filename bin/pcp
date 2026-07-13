@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""pcp — CLI client for the pi-crt-player control daemon (pcpd).
+
+Talks to the daemon's HTTP/JSON API. Installed as `pcp` with convenience
+symlinks `play`, `stop`, `queue`, `next`, `now` — the command is taken from
+how it's invoked (argv[0]), or as the first argument to `pcp`.
+
+    play <url | search terms>    play now
+    queue <url | search terms>   add to the queue
+    stop                         stop and clear the queue
+    next                         skip to the next video
+    now                          show what's playing + queue
+    pcp search <words>           search (numbered list)
+    pcp clear | pcp pause        clear queue / pause-resume
+"""
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+
+HOST = os.environ.get("PCP_HOST", "127.0.0.1")
+PORT = os.environ.get("PCP_PORT", "8677")
+BASE = f"http://{HOST}:{PORT}"
+
+CMDS = {"play", "queue", "stop", "next", "now", "status", "clear", "pause", "search"}
+
+
+def call(method, path, data=None):
+    body = json.dumps(data).encode("utf-8") if data is not None else None
+    req = urllib.request.Request(
+        BASE + path, data=body, method=method,
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            return json.load(resp)
+    except urllib.error.URLError as e:
+        sys.exit(f"cannot reach the player daemon at {BASE} ({e}). "
+                 "is crt-player running? (systemctl status crt-player)")
+
+
+def show(cmd, r):
+    if isinstance(r, dict) and r.get("error"):
+        print(f"error: {r['error']}")
+        return
+    if cmd == "search":
+        for i, it in enumerate(r.get("results", []), 1):
+            print(f"{i:2}) {it['title']}")
+        return
+    if cmd in ("now", "status", "next"):
+        now = r.get("now")
+        line = ("now playing: " + now["title"]) if now else "nothing playing"
+        if now and r.get("paused"):
+            line += " (paused)"
+        print(line)
+        for i, it in enumerate(r.get("queue", []), 1):
+            if i == 1:
+                print("up next:")
+            print(f"  {i}) {it['title']}")
+        return
+    if r.get("now"):
+        print(f"playing: {r['now']['title']}")
+    elif "queued" in r:
+        print(f"queued (#{r['position']}): {r['queued']['title']}")
+    elif "paused" in r:
+        print("paused" if r["paused"] else "resumed")
+    else:
+        print("ok")
+
+
+def main():
+    name = os.path.basename(sys.argv[0])
+    if name in CMDS:
+        cmd, args = name, sys.argv[1:]
+    elif len(sys.argv) > 1 and sys.argv[1] in CMDS:
+        cmd, args = sys.argv[1], sys.argv[2:]
+    else:
+        sys.exit("usage: pcp {play|queue|stop|next|now|clear|pause|search} ...")
+
+    q = " ".join(args).strip()
+    if cmd in ("play", "queue", "search") and not q:
+        sys.exit(f"usage: {cmd} <url | search terms>")
+
+    if cmd == "play":
+        r = call("POST", "/play", {"q": q})
+    elif cmd == "queue":
+        r = call("POST", "/enqueue", {"q": q})
+    elif cmd == "search":
+        r = call("POST", "/search", {"q": q})
+    elif cmd == "stop":
+        r = call("POST", "/stop")
+    elif cmd == "next":
+        r = call("POST", "/next")
+    elif cmd == "clear":
+        r = call("POST", "/clear")
+    elif cmd == "pause":
+        r = call("POST", "/pause")
+    else:  # now / status
+        r = call("GET", "/status")
+
+    show(cmd, r)
+
+
+if __name__ == "__main__":
+    main()

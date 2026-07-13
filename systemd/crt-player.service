@@ -1,5 +1,5 @@
 [Unit]
-Description=CRT Player — telnet control server for pi-crt-player
+Description=CRT Player — control daemon (persistent mpv + telnet + HTTP API)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,8 +7,12 @@ Wants=network-online.target
 Type=simple
 # @USER@ is substituted with the installing user by setup.sh.
 User=@USER@
-ExecStart=/usr/bin/python3 /usr/local/lib/pi-crt-player/player.py
+SupplementaryGroups=video render audio
+Environment=HOME=/home/@USER@
 Environment=PLAYER_PORT=23
+# mpv IPC socket lives here (/run/pi-crt-player, created + owned by us).
+RuntimeDirectory=pi-crt-player
+ExecStart=/usr/bin/python3 /usr/local/lib/pi-crt-player/pcpd.py
 # Allow binding the privileged telnet port (23) without running as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=on-failure

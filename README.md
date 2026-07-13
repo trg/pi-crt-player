@@ -14,24 +14,25 @@ cd pi-crt-player
 ./setup.sh
 ```
 
-Then log out and back in once (so the `video`/`render` group membership takes
-effect) and you're ready.
+That's it — `setup.sh` starts the control daemon, so you're ready immediately.
 
 ## Usage
 
 ```bash
-play 'https://www.youtube.com/watch?v=...'   # play a URL
-play space oddity david bowie                 # search, play the first hit
-stop                                          # stop playback
+play space oddity david bowie   # play now (URL or search terms)
+queue another great song        # add to the queue
+now                             # what's playing + queue
+next                            # skip to the next video
+stop                            # stop and clear the queue
 ```
 
-Playback is detached from your SSH session, so it keeps going after you log out.
+These are thin clients that talk to the always-running control daemon, so
+playback is independent of your SSH session.
 
 ## Remote control (telnet)
 
-`setup.sh` also installs **CRT Player**, a no-login telnet control server
-(systemd service `crt-player`, port 23) so anyone on the network can drive the
-TV:
+The same daemon runs a no-login telnet server (port 23) so anyone on the
+network can drive the TV:
 
 ```
 telnet <pi-host>
@@ -46,24 +47,33 @@ telnet <pi-host>
  2) First Moon Landing 1969
 > play 1
 playing: Apollo 11 Launch - Restored
+> queue 2
+queued (#1): First Moon Landing 1969
 ```
 
-Commands: `search <words>`, `play <n|url|words>`, `stop`, `now`, `help`, `quit`.
+Commands: `search`, `play <n|url|words>`, `queue <n|url|words>`, `list`,
+`next`, `pause`, `stop`, `now`, `help`, `quit`.
 
 It's an **open, unauthenticated** service — anyone who can reach the Pi can
-control playback (a home-network remote, by design). It only ever runs
-`play`/`stop`/`yt-dlp` with argument lists, never a shell, so search terms
-can't inject commands. Manage it with `systemctl status/restart crt-player`.
+control playback (a home-network remote, by design). Search terms are passed to
+yt-dlp as argument lists, never through a shell, so they can't inject commands.
+Manage it with `systemctl status/restart crt-player`.
 
 ## How it works
 
-- **mpv** renders directly to the display via DRM/KMS using the Pi's V3D GPU
-  (`vo=gpu`), so no X/Wayland is needed.
-- **yt-dlp** resolves YouTube URLs; mpv calls it under the hood.
-- Output is pinned to **720x480** and video is fetched as **H.264 <=480p** so the
-  Pi's hardware decoder can be used and there's no expensive upscaling.
-
-See `config/mpv.conf` for the tunables (resolution, aspect/panscan, format).
+- A **control daemon** (`crt-player` systemd service, `server/pcpd.py`) owns a
+  single **persistent mpv** instance and drives it over mpv's JSON IPC socket.
+  Because mpv stays alive between videos, the screen never drops back to the
+  console login, and `now` always reflects true state.
+- The **queue** is managed by the daemon; when a video ends it auto-advances to
+  the next one, or shows the idle screen (drop a PNG at
+  `/usr/local/lib/pi-crt-player/idle.png` to customize it).
+- Two thin **frontends** talk to the daemon: the telnet server, and an
+  **HTTP/JSON API** on `127.0.0.1:8677` (used by the `pcp` CLI, and ready to
+  back a future box-hosted web UI — see [ROADMAP.md](ROADMAP.md)).
+- **mpv** renders via DRM/KMS on the Pi's V3D GPU (`vo=gpu`, no X/Wayland);
+  **yt-dlp** resolves YouTube. Output is pinned to **720x480** / **H.264 <=480p**
+  for hardware decode with no expensive upscaling. See `config/mpv.conf`.
 
 ## Roadmap
 

@@ -7,6 +7,11 @@ built yet; this is the thinking/planning doc.
 
 ## 0. Long-term architecture (keep in mind while building)
 
+> **Status: partially implemented.** The control core + HTTP/JSON API now exist
+> (`server/pcpd.py`, `127.0.0.1:8677`); telnet and the `pcp` CLI are thin
+> clients over it. Still to do: the box-hosted **web frontend** (the API is
+> ready for it).
+
 Today the control surface is telnet. Tomorrow it might be a **web page the box
 hosts**, or a native app. So we should stop treating "telnet" as the product
 and instead build a clean separation:
@@ -100,13 +105,17 @@ Sources:
 
 ## 2. Video queue & basic queue management
 
-**Current limitation:** `play` and `stop` are one-shot processes — each `play`
-kills the old mpv and `setsid`s a new one. There's no shared, queryable player
-state (the telnet server just keeps a `now_playing` string in memory), so
-there's nowhere for a queue to live.
+> **Status: implemented** in `server/pcpd.py`. `play`/`queue`/`list`/`next`/
+> `clear` work over telnet and the CLI; the daemon-managed queue auto-advances.
+> `play` interrupts the current video but keeps the queue. Possible follow-ups:
+> `shuffle`, reordering, `playlist` import.
 
-**Proposed architecture — one persistent mpv driven over its IPC socket.**
-This is the "control core" from §0. mpv can run idle and accept commands on a
+**The problem it solved:** `play`/`stop` used to be one-shot processes — each
+`play` killed the old mpv and `setsid`'d a new one, with no shared, queryable
+state, so there was nowhere for a queue to live.
+
+**Architecture — one persistent mpv driven over its IPC socket.**
+This is the "control core" from §0. mpv runs idle and accepts commands on a
 JSON socket
 (`mpv --idle=yes --force-window=yes --input-ipc-server=/run/user/<uid>/mpv.sock`).
 Then everything becomes an IPC message instead of a new process:
@@ -128,25 +137,15 @@ The control-core daemon wraps this socket and exposes the HTTP/JSON API; telnet
 
 ## 3. End-of-video behavior + accurate `now`
 
-**What happens today:** when a video ends, mpv exits, and the CRT drops back to
-the console login prompt. Also, `now` reports the last thing *launched* because
-the telnet server sets `now_playing` on `play` and never clears it — so after a
-video ends it still claims to be playing. This is a consequence of the one-shot
-design, not a bug per se.
+> **Status: implemented** via the persistent mpv (§2). mpv never exits, so the
+> CRT no longer drops to the console login — when the queue empties it shows an
+> idle screen (black, or `idle.png` if present). `now` reflects true daemon
+> state. Follow-up: a proper "attract mode" idle screen (see below).
 
-**Quick, standalone fix (no rearchitecting):** make `now` reflect reality —
-check whether an mpv process is actually running (`pgrep -x mpv`); if not,
-report "nothing playing." Cheap, immediately more honest.
+**What used to happen:** when a video ended, mpv exited and the CRT dropped back
+to the console login; `now` reported the last thing *launched* (a stale
+in-memory string). Both were consequences of the one-shot design.
 
-**Better fix (falls out of §2 for free):** with one persistent idle mpv:
-- It **never exits**, so the CRT never drops to the console login — when the
-  queue empties, mpv sits on an idle window instead.
-- `now` reads true state over IPC (`media-title` + `core-idle`/`idle-active`),
-  always accurate.
-- The idle screen becomes a feature: an "attract mode" — logo/splash, a clock,
-  "telnet/visit me to play something" instructions, or a looping default
-  playlist.
-
-> §2 and §3 share the same solution — a single long-lived mpv (the control
-> core) — so they should be built together, and that core is also what a future
-> web UI (§0) will talk to.
+**Idle screen — room to grow.** Right now idle is a black screen or a static
+`idle.png`. A nicer "attract mode" could show a clock, "telnet me to play
+something" instructions, now/next info, or a looping default playlist.

@@ -24,24 +24,29 @@ echo "==> Installing mpv config to ~/.config/mpv/mpv.conf..."
 mkdir -p "$HOME/.config/mpv"
 cp "$REPO_DIR/config/mpv.conf" "$HOME/.config/mpv/mpv.conf"
 
-echo "==> Installing play / stop commands to /usr/local/bin..."
-sudo cp "$REPO_DIR/bin/play" "$REPO_DIR/bin/stop" /usr/local/bin/
-sudo chmod a+rx /usr/local/bin/play /usr/local/bin/stop
+echo "==> Installing player CLI (pcp + play/stop/queue/next/now)..."
+sudo cp "$REPO_DIR/bin/pcp" /usr/local/bin/pcp
+sudo chmod a+rx /usr/local/bin/pcp
+for c in play stop queue next now; do
+  sudo ln -sf pcp "/usr/local/bin/$c"
+done
 
-echo "==> Installing CRT Player telnet control server (runs on boot)..."
+echo "==> Installing CRT Player control daemon (runs on boot)..."
 sudo install -d /usr/local/lib/pi-crt-player
-sudo cp "$REPO_DIR/server/player.py" /usr/local/lib/pi-crt-player/player.py
-sudo chmod a+rx /usr/local/lib/pi-crt-player/player.py
-sed "s/@USER@/$USER/" "$REPO_DIR/systemd/crt-player.service" \
+sudo cp "$REPO_DIR/server/pcpd.py" /usr/local/lib/pi-crt-player/pcpd.py
+sudo chmod a+rx /usr/local/lib/pi-crt-player/pcpd.py
+sed "s/@USER@/$USER/g" "$REPO_DIR/systemd/crt-player.service" \
   | sudo tee /etc/systemd/system/crt-player.service >/dev/null
 sudo systemctl daemon-reload
-sudo systemctl enable --now crt-player.service
+sudo systemctl restart crt-player.service
+sudo systemctl enable crt-player.service
 
 echo
-echo "Done. Log out and back in ONCE (for the group change to apply), then:"
-echo "  play 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"
-echo "  play space oddity david bowie"
-echo "  stop"
+echo "Done. The control daemon is running (it owns one persistent mpv), so:"
+echo "  play space oddity david bowie   # play now"
+echo "  queue another great song        # add to the queue"
+echo "  now                             # what's playing + queue"
+echo "  next / stop"
 echo
 echo "Remote is live — anyone on the network can control the TV with:"
 echo "  telnet $(hostname).local     (or: telnet $(hostname -I | awk '{print $1}'))"
