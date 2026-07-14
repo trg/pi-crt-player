@@ -10,7 +10,8 @@
 # (the order you flip through with 'ch up' / 'ch down').
 # Blank lines and lines starting with '#' are ignored.
 #
-# After editing:  sudo systemctl restart crt-player
+# Edits are picked up automatically on the next surf / ch / guide command —
+# no restart needed.
 #
 # --- starter lineup — replace with your own ---------------------------------
 

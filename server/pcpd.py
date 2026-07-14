@@ -222,13 +222,15 @@ class Controller:
         self.paused = False
 
         # channel surfing
-        self.channels = load_channels()
+        self.channels = []
         self.surfing = False
         self.channel_idx = 0           # which channel we're tuned to
         self.prog_idx = 0              # position within that channel's loop
         self._chan_cache = {}          # channel_idx -> (fetched_ts, [videos])
+        self._channels_mtime = None    # CHANNELS_FILE mtime we last loaded
         self._pending_seek = None      # seconds to seek to once the file loads
         self._info_task = None         # background task drawing the info banner
+        self._reload_channels()        # initial load (falls back to defaults)
 
     # ---- yt-dlp resolution (network; kept outside the lock) ----
     async def _yt(self, *args, timeout=45):
@@ -477,12 +479,36 @@ class Controller:
         return {"channel": {"num": idx + 1, "name": self.channels[idx]["name"]},
                 "now": {"title": item["title"], "url": item["url"]}}
 
+    def _reload_channels(self):
+        """Re-read the lineup from disk when CHANNELS_FILE changes.
+
+        Keeps `surf`, the guide, etc. in sync with edits to channels.txt
+        without restarting the daemon. Cheap: only re-parses when the file's
+        mtime moves. Since the video cache is keyed by channel position, a
+        changed lineup drops it (positions may now mean different channels).
+        """
+        try:
+            mtime = os.path.getmtime(CHANNELS_FILE)
+        except OSError:
+            mtime = None
+        if mtime == self._channels_mtime and self.channels:
+            return
+        self._channels_mtime = mtime
+        new = load_channels()
+        if new != self.channels:
+            self.channels = new
+            self._chan_cache = {}
+            if self.channel_idx >= len(self.channels):
+                self.channel_idx = 0
+
     async def surf(self):
         """Enter channel-surfing mode, tuned to the current channel."""
+        self._reload_channels()
         return await self._tune(self.channel_idx)
 
     async def channel_step(self, delta):
         """Flip channels (delta +1 = up, -1 = down); wraps around the lineup."""
+        self._reload_channels()
         if not self.channels:
             return {"error": "no channels configured"}
         base = self.channel_idx if self.surfing else self.channel_idx - delta
@@ -490,6 +516,7 @@ class Controller:
 
     async def channel_to(self, num):
         """Tune directly to channel `num` (1-based, as shown in the guide)."""
+        self._reload_channels()
         if not self.channels:
             return {"error": "no channels configured"}
         if not 1 <= num <= len(self.channels):
@@ -511,6 +538,7 @@ class Controller:
 
     def channels_info(self):
         """TV guide data: the lineup, which channel is on, what's airing."""
+        self._reload_channels()   # reflect edits to channels.txt live
         cur = self.channel_idx if self.surfing else None
         chans = [{"num": i + 1, "name": c["name"], "current": (i == cur)}
                  for i, c in enumerate(self.channels)]

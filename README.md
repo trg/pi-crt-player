@@ -119,8 +119,12 @@ To change the lineup on the box:
 
 ```bash
 sudo nano /usr/local/lib/pi-crt-player/channels.txt   # add/remove/reorder lines
-sudo systemctl restart crt-player                     # reload the lineup
 ```
+
+That's it — the daemon re-reads the file automatically the next time you `surf`,
+`ch`, or open the `guide` (it watches the file's timestamp), so **no restart is
+needed**. If you're mid-surf, re-tune (`ch up`/`ch down` or `ch <n>`) to land on
+the updated lineup.
 
 `setup.sh` installs the file with `cp -n`, so re-running it never overwrites a
 lineup you've customised on the box. The shipped list is a starter set —
