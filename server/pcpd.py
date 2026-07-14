@@ -434,6 +434,21 @@ class Controller:
             self._chan_cache[idx] = (time.time(), videos)
         return videos
 
+    async def warm_channels(self):
+        """Pre-resolve channel listings in the background so the first tune to
+        each channel skips the yt-dlp fetch. Runs a few at a time to avoid
+        spiking the Pi at boot; missing channels just resolve on first tune."""
+        sem = asyncio.Semaphore(3)
+
+        async def one(i):
+            async with sem:
+                try:
+                    await self._channel_videos(i)
+                except Exception:
+                    pass   # best-effort; a bad channel shouldn't stop warming
+
+        await asyncio.gather(*(one(i) for i in range(len(self.channels))))
+
     def _schedule(self, videos):
         """Deterministic (programme index, offset) from the wall clock.
 
@@ -960,6 +975,8 @@ async def main():
         os._exit(1)   # mpv died -> exit so systemd restarts the whole stack
 
     asyncio.create_task(watch_mpv())
+    # Warm channel listings in the background so the first tune is quick.
+    asyncio.create_task(controller.warm_channels())
 
     async with telnet_srv, http_srv:
         await asyncio.gather(telnet_srv.serve_forever(),
