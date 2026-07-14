@@ -230,6 +230,7 @@ class Controller:
         self._channels_mtime = None    # CHANNELS_FILE mtime we last loaded
         self._pending_seek = None      # seconds to seek to once the file loads
         self._info_task = None         # background task drawing the info banner
+        self._loaded_event = asyncio.Event()  # set when mpv reports file-loaded
         self._reload_channels()        # initial load (falls back to defaults)
 
     # ---- yt-dlp resolution (network; kept outside the lock) ----
@@ -489,6 +490,7 @@ class Controller:
         self.prog_idx, offset = self._schedule(videos)
         item = videos[self.prog_idx]
         async with self.lock:
+            await self._prime_banner(idx, item)   # instant feedback, pre-load
             await self._load_program(item, offset)
         self._announce(idx, item)
         return {"channel": {"num": idx + 1, "name": self.channels[idx]["name"]},
@@ -548,6 +550,7 @@ class Controller:
         self.prog_idx = (self.prog_idx + 1) % len(videos)
         item = videos[self.prog_idx]
         async with self.lock:
+            await self._prime_banner(self.channel_idx, item)
             await self._load_program(item, 0)
         self._announce(self.channel_idx, item)
 
@@ -566,7 +569,7 @@ class Controller:
         # Keep user/video text from breaking the ASS override syntax.
         return s.replace("\\", "/").replace("{", "(").replace("}", ")")
 
-    def _info_ass(self, idx, item, alpha="00"):
+    def _info_ass(self, idx, item, alpha="00", tuning=False):
         ch = self.channels[idx]
         cx = IDLE_RES_X // 2
         base = (r"\an5\fn%s\bord2\shad0\blur0.6\alpha&H%s&"
@@ -575,9 +578,13 @@ class Controller:
         title = self._ass_escape(item["title"])
         h_fs = max(9, min(18, (IDLE_RES_X - 24) // max(len(header), 1)))
         t_fs = max(8, min(14, (IDLE_RES_X - 16) // max(len(title), 1)))
-        l1 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 176, h_fs, header)
-        l2 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 204, t_fs, title)
-        return l1 + "\n" + l2
+        # Header + title sit at fixed positions; the "tuning..." line only
+        # shows while the stream is resolving, then disappears without a jump.
+        lines = [r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 156, h_fs, header),
+                 r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 182, t_fs, title)]
+        if tuning:
+            lines.append(r"{%s\pos(%d,%d)\fs10}tuning..." % (base, cx, 206))
+        return "\n".join(lines)
 
     async def _show_info(self, ass):
         await self.mpv.command(
@@ -595,6 +602,16 @@ class Controller:
         self._info_task = None
         await self._hide_info()
 
+    async def _prime_banner(self, idx, item):
+        """Draw the banner *before* loadfile — mpv is still idle so it paints
+        immediately, giving instant "CH n / title / tuning..." feedback that
+        stays up through the black stream-resolution gap (perceived speed)."""
+        if self._info_task and not self._info_task.done():
+            self._info_task.cancel()
+        self._info_task = None
+        self._loaded_event.clear()
+        await self._show_info(self._info_ass(idx, item, "00", tuning=True))
+
     def _announce(self, idx, item):
         # Replace any in-flight banner (fast surfing) with the new one.
         if self._info_task and not self._info_task.done():
@@ -603,7 +620,14 @@ class Controller:
 
     async def _info_banner(self, idx, item):
         try:
-            await self._show_info(self._info_ass(idx, item, "00"))
+            # Hold + fade are timed from when the *picture* actually starts
+            # (file-loaded), so the banner is meaningful during the wait and
+            # fades a few seconds after the video appears — like a real TV.
+            try:
+                await asyncio.wait_for(self._loaded_event.wait(), timeout=25)
+            except asyncio.TimeoutError:
+                pass
+            await self._show_info(self._info_ass(idx, item, "00"))  # drop "tuning"
             await asyncio.sleep(INFO_HOLD)
             steps = 8
             for s in range(1, steps + 1):
@@ -621,10 +645,12 @@ class Controller:
         # mpv command (the reply is read by this same loop) or a slow network
         # fetch — either would stall event delivery. Hand the work to a task.
         e = ev.get("event")
-        if e == "file-loaded" and self._pending_seek is not None:
-            # Drop into the programme mid-broadcast (the "live TV" illusion).
-            offset, self._pending_seek = self._pending_seek, None
-            asyncio.create_task(self.mpv.command("seek", offset, "absolute"))
+        if e == "file-loaded":
+            self._loaded_event.set()   # unblocks the banner's hold+fade timer
+            if self._pending_seek is not None:
+                # Drop into the programme mid-broadcast (the "live TV" illusion).
+                offset, self._pending_seek = self._pending_seek, None
+                asyncio.create_task(self.mpv.command("seek", offset, "absolute"))
         elif e == "end-file" and ev.get("reason") in ("eof", "error"):
             # Natural end (or a broken file) -> move on. Our own loadfile/stop
             # produce reason "stop"/"redirect", which we deliberately ignore.
