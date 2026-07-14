@@ -10,6 +10,9 @@ User=@USER@
 SupplementaryGroups=video render audio
 Environment=HOME=/home/@USER@
 Environment=PLAYER_PORT=23
+# Channel-surfing lineup, read live from the repo checkout so `git pull`
+# updates it with no reinstall. @CHANNELS@ is substituted by setup.sh.
+Environment=CHANNELS_FILE=@CHANNELS@
 # mpv IPC socket lives here (/run/pi-crt-player, created + owned by us).
 RuntimeDirectory=pi-crt-player
 ExecStart=/usr/bin/python3 /usr/local/lib/pi-crt-player/pcpd.py

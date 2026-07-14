@@ -43,10 +43,13 @@ sudo install -d /usr/local/lib/pi-crt-player
 sudo cp "$REPO_DIR/server/pcpd.py" /usr/local/lib/pi-crt-player/pcpd.py
 sudo chmod a+rx /usr/local/lib/pi-crt-player/pcpd.py
 
-echo "==> Installing channel-surfing lineup (edit channels.txt to customise)..."
-# -n: never clobber a lineup you've already customised on the box.
-sudo cp -n "$REPO_DIR/config/channels.txt" /usr/local/lib/pi-crt-player/channels.txt
-sed "s/@USER@/$USER/g" "$REPO_DIR/systemd/crt-player.service" \
+# The channel-surfing lineup is read live from this repo checkout (see
+# CHANNELS_FILE in the service below), so editing config/channels.txt and
+# `git pull` updates the channels with no reinstall — the daemon re-reads it.
+echo "==> Channel lineup: $REPO_DIR/config/channels.txt (edit + it reloads live)"
+sed -e "s/@USER@/$USER/g" \
+    -e "s#@CHANNELS@#$REPO_DIR/config/channels.txt#g" \
+    "$REPO_DIR/systemd/crt-player.service" \
   | sudo tee /etc/systemd/system/crt-player.service >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl restart crt-player.service

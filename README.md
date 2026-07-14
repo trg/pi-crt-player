@@ -96,8 +96,9 @@ TV guide:
 ### Managing channels
 
 The lineup is a plain text file, **one channel per line** — no JSON, no
-restart-the-world. It lives at `config/channels.txt` in the repo and is
-installed to `/usr/local/lib/pi-crt-player/channels.txt` on the box.
+restart-the-world. The daemon reads it **straight from your repo checkout**
+(`config/channels.txt`); `setup.sh` points the service at that path, so a
+`git pull` (or a local edit) is all it takes.
 
 ```
 # <@handle or URL>   [| Display Name]
@@ -115,20 +116,22 @@ https://www.youtube.com/playlist?list=PL...     | My Playlist
   (what `ch up` / `ch down` flip through).
 - Blank lines and lines starting with `#` are ignored.
 
-To change the lineup on the box:
+To change the lineup on the box, edit the file in the checkout (or edit it
+anywhere and `git pull`):
 
 ```bash
-sudo nano /usr/local/lib/pi-crt-player/channels.txt   # add/remove/reorder lines
+cd ~/pi-crt-player
+nano config/channels.txt      # add/remove/reorder lines   (or: git pull)
 ```
 
 That's it — the daemon re-reads the file automatically the next time you `surf`,
-`ch`, or open the `guide` (it watches the file's timestamp), so **no restart is
-needed**. If you're mid-surf, re-tune (`ch up`/`ch down` or `ch <n>`) to land on
-the updated lineup.
-
-`setup.sh` installs the file with `cp -n`, so re-running it never overwrites a
-lineup you've customised on the box. The shipped list is a starter set —
+`ch`, or open the `guide` (it watches the file's timestamp), so **no restart and
+no reinstall** are needed. If you're mid-surf, re-tune (`ch up`/`ch down` or
+`ch <n>`) to land on the updated lineup. The shipped list is a starter set —
 **swap in your own channels.**
+
+> Changing the *daemon code* (`server/pcpd.py`) still needs `./setup.sh` to
+> reinstall it; only the channel lineup reloads live.
 
 > This hardcoded lineup is the MVP. Turning your private YouTube
 > **subscriptions** into channels needs logged-in cookies on the box — see
