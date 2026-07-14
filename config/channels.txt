@@ -26,6 +26,10 @@
 @historigraph | Historigraph
 @campingwithsteve | Camping with Steve
 @OfficialWKUK | WKUK
+@PaolofromTOKYO | Paolo from Tokyo
+@TheOnion | The Onion
+@bobross_thejoyofpainting | Bob Ross
+@FoundFootageFest | Found Footage Fest
 
 
 # Examples of other things you can put here:
