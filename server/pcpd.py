@@ -437,18 +437,16 @@ class Controller:
 
     async def warm_channels(self):
         """Pre-resolve channel listings in the background so the first tune to
-        each channel skips the yt-dlp fetch. Runs a few at a time to avoid
-        spiking the Pi at boot; missing channels just resolve on first tune."""
-        sem = asyncio.Semaphore(3)
-
-        async def one(i):
-            async with sem:
-                try:
-                    await self._channel_videos(i)
-                except Exception:
-                    pass   # best-effort; a bad channel shouldn't stop warming
-
-        await asyncio.gather(*(one(i) for i in range(len(self.channels))))
+        each channel skips the yt-dlp fetch. One at a time (each yt-dlp pegs a
+        core on the Pi): this is best-effort and off the critical path, so we
+        trade a slower warm-up for leaving cores free for playback. Missing
+        channels just resolve on first tune."""
+        for i in range(len(self.channels)):
+            try:
+                await self._channel_videos(i)
+            except Exception:
+                pass   # best-effort; a bad channel shouldn't stop warming
+            await asyncio.sleep(0.5)   # breathe between fetches
 
     def _schedule(self, videos):
         """Deterministic (programme index, offset) from the wall clock.
