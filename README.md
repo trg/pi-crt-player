@@ -205,5 +205,5 @@ your SSH session and stay in sync with whatever telnet users are doing.
 
 See [ROADMAP.md](ROADMAP.md) — the long-term frontend-agnostic architecture
 (telnet now, web later), more ways to get video onto the box (casting target +
-non-DRM sources, and the DRM wall that blocks Paramount+/Hulu/HBO), a video
+non-DRM sources, and the DRM wall that blocks Paramount+/HBO/Netflix), a video
 queue, and idle-screen / accurate-`now` improvements.

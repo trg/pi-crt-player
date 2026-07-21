@@ -45,7 +45,7 @@ big paid services, so keep that front and center.
 
 ### The DRM wall (applies to pull *and* push)
 
-Netflix, Hulu, HBO Max, Paramount+ protect video with **Widevine** (and Apple
+Netflix, HBO Max, Paramount+ protect video with **Widevine** (and Apple
 **FairPlay**). Neither direction can get around it on a homemade box:
 
 - **Pull:** yt-dlp refuses DRM streams (`This video is DRM protected`).
@@ -55,7 +55,7 @@ Netflix, Hulu, HBO Max, Paramount+ protect video with **Widevine** (and Apple
   show DRM content — protected video "only plays back on the device itself"
   (black screen when mirrored).
 
-So **Netflix/Hulu/HBO/Paramount+ are not achievable** without a licensed,
+So **Netflix/HBO/Paramount+ are not achievable** without a licensed,
 certified stack. Everything below is about doing well with what's actually
 possible.
 
@@ -73,7 +73,7 @@ UX for the non-DRM world:
 - **Google Cast receiver** — low priority; the useful apps need certification.
 
 Reality check: excellent for YouTube / personal media / AirPlay-able apps; will
-**not** receive Netflix/Hulu/HBO (DRM, see above).
+**not** receive Netflix/HBO (DRM, see above).
 
 ### 1b. Non-DRM sources via yt-dlp (still easy, fits current stack)
 
@@ -82,7 +82,7 @@ PBS, direct HLS/`.m3u8`, most IPTV playlists, free/ad-supported catalogs. Work
 needed: relax the YouTube-only assumptions in `play`/`search` (per-provider
 search prefixes) and surface the provider in the UI. No architecture change.
 
-### 1c. DRM services natively (Paramount+/Hulu/HBO) — the browser stack
+### 1c. DRM services natively (Paramount+/HBO) — the browser stack
 
 The *only* legitimate route, and a heavy one: **Chromium + Widevine CDM**
 (`libwidevinecdm0`), which needs a display server (X/Wayland + a WM) added to
@@ -97,7 +97,7 @@ Chrome box; **B.** full port here (big lift, duplicates that project);
 call (lean toward option A). Casting DRM apps to the box is simply not possible.
 
 Sources:
-- [yt-dlp refuses DRM-protected streams (Hulu/Paramount+/Netflix)](https://en.vidjuice.com/how-to/online-downloader/how-to-resolve-yt-dlp-error-this-video-is-drm-protected/)
+- [yt-dlp refuses DRM-protected streams (Paramount+/Netflix)](https://en.vidjuice.com/how-to/online-downloader/how-to-resolve-yt-dlp-error-this-video-is-drm-protected/)
 - [UxPlay — open AirPlay receiver; DRM content can't be mirrored](https://github.com/FDH2/UxPlay)
 - [Installing Widevine DRM on Raspberry Pi (Chromium, Level 3)](https://pimylifeup.com/raspberry-pi-widevine/)
 

@@ -6,9 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Turns a Raspberry Pi 4 + small CRT (over HDMI) into a telnet-controlled video
 player: `telnet <pi-host>` gets you search/play/queue for YouTube, plus a
-"channel surfing" mode that turns YouTube channels into simulated live TV, and
-an experimental Hulu path via a fullscreen kiosk browser. No auth — anyone on
-the LAN can control it, by design.
+"channel surfing" mode that turns YouTube channels into simulated live TV.
+No auth — anyone on the LAN can control it, by design.
 
 ## Commands
 
@@ -45,12 +44,15 @@ after manually syncing.
 **Control core / frontend split** (see ROADMAP.md §0): all playback logic
 lives in one place; frontends are thin translators with zero business logic.
 
-- **`server/pcpd.py`** — the whole daemon (`crt-player` systemd service). Owns:
-  - `Mpv` — async JSON-IPC client to a single persistent `mpv` process (kept
-    alive between videos so `now` always reflects true state and the screen
-    never drops to a console login).
+- **`server/pcpd.py`** — the whole daemon (`crt-player` systemd service). `main()`
+  spawns the single `mpv` subprocess directly (persistent, `--idle=yes`, driven
+  over its JSON IPC socket) and watches it — if mpv dies unexpectedly the whole
+  process exits so systemd restarts the stack. Owns:
+  - `Mpv` — async JSON-IPC client to that `mpv` process (kept alive between
+    videos so `now` always reflects true state and the screen never drops to
+    a console login).
   - `Controller` — all playback state and logic: queue, play/pause/stop,
-    channel surfing, Hulu handoff. Everything else is a thin adapter over it.
+    channel surfing. Everything else is a thin adapter over it.
   - A **telnet server** (port 23) — the retro remote, line-based.
   - An **HTTP/JSON API** (`127.0.0.1:8677`) — used by the `pcp` CLI today,
     designed to back a future box-hosted web UI without changes to the core.
@@ -77,8 +79,8 @@ lives in one place; frontends are thin translators with zero business logic.
   yt-dlp (the Pi 4 has no VP9/AV1 hardware decode), panscan to fill 4:3.
 
 - **`systemd/crt-player.service`** — template unit; `setup.sh` substitutes
-  `@USER@`, `@CHANNELS@` (absolute path to the repo's `channels.txt`), and
-  `@RAPIDAPI_ENV@` before installing it.
+  `@USER@` and `@CHANNELS@` (absolute path to the repo's `channels.txt`)
+  before installing it.
 
 ### Channel surfing (`Controller` §"channel surfing")
 
@@ -93,22 +95,19 @@ CPU). A green ASS-drawn banner (`_info_ass`/`_announce`) shows channel/title
 on tune-in and fades out like a real TV, timed off the `file-loaded` mpv
 event rather than a fixed delay.
 
-### Hulu path (see ROADMAP.md §1c)
-
-yt-dlp/mpv refuse DRM streams, so Hulu can't join the normal play/queue path.
-Instead: title search via the RapidAPI "Streaming Availability" API
-(`RAPIDAPI_KEY` in `~/.config/pi-crt-player/rapidapi.env`, gitignored/not
-committed), then the resulting deep link is opened in fullscreen Chromium
-under `cage` (minimal Wayland kiosk compositor). mpv and Chromium can't share
-the DRM device, so entering/leaving Hulu mode actually stops/restarts the mpv
-process (`Controller._stop_mpv`/`_start_mpv`), not just pauses it.
-
 ### Idle / attract screen
 
 When nothing is playing, mpv draws a green "attract" overlay via its OSD
 (libass, `Controller._idle_ass`) — no image tooling needed. Small virtual
 canvas (`IDLE_RES_X`/`IDLE_RES_Y`) keeps glyphs large and CRT-readable
-(Press Start 2P font, installed by `setup.sh`).
+(Press Start 2P font, installed by `setup.sh`). It shows how to connect:
+`$ telnet <hostname>`, a fallback `<LAN IPv4>` (via `_local_ipv4()` — never
+`socket.gethostbyname(hostname)`, which resolves to the Debian `/etc/hosts`
+loopback alias `127.0.1.1`, not the real address), and the wifi SSID
+(`_wifi_ssid()`, tries `nmcli` then `iwgetid`, `None` on wired/no-wifi boxes).
+This info is cached on `Controller._net` and refreshed every `NET_INFO_TTL`
+seconds by `Controller._watch_net()`, redrawing the overlay only while it's
+actually on screen.
 
 ## Security note (intentional, not a bug)
 
@@ -120,5 +119,5 @@ subprocess calls so network input can't inject commands.
 ## Roadmap
 
 See `ROADMAP.md` for the design rationale behind the frontend/core split, the
-DRM wall that blocks Netflix/Hulu/HBO/Paramount+ natively, and planned work
-(web frontend, casting receiver, subscriptions-as-channels).
+DRM wall that blocks Netflix/HBO/Paramount+ natively, and planned work (web
+frontend, casting receiver, subscriptions-as-channels).
