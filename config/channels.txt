@@ -18,7 +18,6 @@
 @NASA        | NASA
 @NatGeo      | National Geographic
 @nprmusic    | Tiny Desk
-@SteveShives | Steve Shives
 @any_austin  | any_austin
 @Drachinifel | Drachinifel
 @legendsofsoapboxracing | Legends of Soapbox Racing
@@ -33,7 +32,10 @@
 @adultswim | [adult swim]
 @BBCArchive | BBC Archive
 @TheWhyFiles | The Why Files
-
+@TwoMinutePapers | Two Minute Papers
+@lockpickinglawyer | Lock Picking Lawyer
+@DrBecky | Dr. Becky (Physics)
+https://youtube.com/playlist?list=PL0SFugwPMKn6UlAC1qia7BhM2cBGJ__Y_&si=hR85oEc5tWWY2x0s | CRT Playlist
 
 # Examples of other things you can put here:
 # @Computerphile
