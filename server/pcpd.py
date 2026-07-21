@@ -63,6 +63,13 @@ IDLE_OVERLAY_ID = 47
 IDLE_RES_X = 320
 IDLE_RES_Y = 240
 IDLE_FONT = os.environ.get("IDLE_FONT", "Press Start 2P")  # installed by setup.sh
+# Hand-placed y-positions per row count (title is always shown; the IP/SSID
+# rows only appear once that info is known), tuned to sit clear of overscan.
+IDLE_ROW_Y = {2: (96, 152), 3: (72, 118, 160), 4: (58, 100, 138, 176)}
+
+# Hostname / IP / wifi SSID shown on the idle screen, refreshed periodically
+# so DHCP renewals or roaming to a different AP don't leave it stale.
+NET_INFO_TTL = int(os.environ.get("NET_INFO_TTL", "30"))
 
 BANNER = (
     "\r\n"
@@ -139,6 +146,47 @@ def load_channels():
         except OSError:
             text = None
     return _parse_channels(text or "") or _parse_channels(DEFAULT_CHANNELS)
+
+
+# ---- network info for the idle screen (hostname / IP / wifi SSID) ----
+def _local_ipv4():
+    """Best-effort LAN IPv4. socket.gethostbyname(hostname) would return the
+    /etc/hosts loopback alias (127.0.1.1 on Debian-based hosts), so instead
+    we ask the kernel which address it would use to reach the internet — a
+    UDP "connect" that resolves the outbound route without sending a packet.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+async def _wifi_ssid():
+    """Best-effort SSID of the wifi network we're on, or None (wired, no
+    wifi, or neither tool is installed). Tries NetworkManager (the default
+    on Pi OS Bookworm+) then wireless-tools' iwgetid."""
+    for args in (("nmcli", "-t", "-f", "active,ssid", "dev", "wifi"),
+                 ("iwgetid", "-r")):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), 3)
+        except (FileNotFoundError, OSError, asyncio.TimeoutError):
+            continue
+        text = out.decode("utf-8", "replace").strip()
+        if args[0] == "nmcli":
+            for line in text.splitlines():
+                if line.startswith("yes:"):
+                    return line.split(":", 1)[1].strip() or None
+            continue
+        if text:
+            return text
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -233,6 +281,10 @@ class Controller:
         self._loaded_event = asyncio.Event()  # set when mpv reports file-loaded
         self._reload_channels()        # initial load (falls back to defaults)
 
+        # network info shown on the idle screen (see _refresh_net/_watch_net)
+        self._net = {"hostname": socket.gethostname() or "this-box",
+                     "ip": None, "ssid": None}
+
     # ---- yt-dlp resolution (network; kept outside the lock) ----
     async def _yt(self, *args, timeout=45):
         proc = await asyncio.create_subprocess_exec(
@@ -274,21 +326,49 @@ class Controller:
         hits = await self.search(q, 1)
         return hits[0] if hits else None
 
+    # ---- network info (hostname / IP / wifi SSID for the idle screen) ----
+    async def _refresh_net(self):
+        self._net["hostname"] = socket.gethostname() or "this-box"
+        self._net["ip"] = _local_ipv4()
+        self._net["ssid"] = await _wifi_ssid()
+
+    async def _watch_net(self):
+        """Keep hostname/IP/SSID fresh (DHCP renewals, wifi roaming) and
+        redraw the idle screen if it's the one currently on screen."""
+        while True:
+            await asyncio.sleep(NET_INFO_TTL)
+            await self._refresh_net()
+            if self.now is None and not self.surfing:
+                await self._show_idle_overlay()
+
     # ---- idle "attract" screen (green text over a black window) ----
     def _idle_ass(self):
-        host = socket.gethostname() or "this-box"
         cx = IDLE_RES_X // 2
-        # Press Start 2P is an ~square, wide pixel font, so text is laid out in
-        # two centred lines and the (variable-length) command line is auto-shrunk
-        # to fit the tube. \fn falls back to the default face if the font is
-        # missing, so the screen still works before setup installs it.
+        # Press Start 2P is an ~square, wide pixel font, so each line is
+        # centred and auto-shrunk to fit the tube. \fn falls back to the
+        # default face if the font is missing, so the screen still works
+        # before setup installs it.
         base = (r"\an5\fn%s\bord2\shad0\blur0.6"
                 r"\1c&H00FF00&\3c&H001500&") % IDLE_FONT
-        cmd = "$ telnet " + host
-        cmd_fs = max(9, min(20, (IDLE_RES_X - 24) // max(len(cmd), 1)))
-        line1 = r"{%s\pos(%d,%d)\fs26}play videos" % (base, cx, 96)
-        line2 = r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, 152, cmd_fs, cmd)
-        return line1 + "\n" + line2
+
+        def fit(text, fs_max, fs_min=9):
+            return max(fs_min, min(fs_max, (IDLE_RES_X - 24) // max(len(text), 1)))
+
+        host, ip, ssid = self._net["hostname"], self._net["ip"], self._net["ssid"]
+        rows = [("play videos", 26)]
+        telnet_line = "$ telnet " + host
+        rows.append((telnet_line, fit(telnet_line, 20)))
+        if ip:
+            ip_line = "or: " + ip
+            rows.append((ip_line, fit(ip_line, 18)))
+        if ssid:
+            ssid_line = "wifi: " + ssid
+            rows.append((ssid_line, fit(ssid_line, 16)))
+
+        ys = IDLE_ROW_Y.get(len(rows), IDLE_ROW_Y[2])
+        lines = [r"{%s\pos(%d,%d)\fs%d}%s" % (base, cx, y, fs, text)
+                 for (text, fs), y in zip(rows, ys)]
+        return "\n".join(lines)
 
     async def _show_idle_overlay(self):
         await self.mpv.command(
@@ -987,6 +1067,7 @@ async def main():
     await mpv.connect()
     controller = Controller(mpv)
     mpv.on_event = controller.on_event
+    await controller._refresh_net()   # know hostname/IP/SSID before first draw
     await controller._go_idle()
 
     telnet_srv = await asyncio.start_server(
@@ -1001,6 +1082,8 @@ async def main():
     asyncio.create_task(watch_mpv())
     # Warm channel listings in the background so the first tune is quick.
     asyncio.create_task(controller.warm_channels())
+    # Keep the idle screen's hostname/IP/SSID current.
+    asyncio.create_task(controller._watch_net())
 
     async with telnet_srv, http_srv:
         await asyncio.gather(telnet_srv.serve_forever(),
