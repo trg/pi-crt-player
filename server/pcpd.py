@@ -359,7 +359,7 @@ class Controller:
         telnet_line = "$ telnet " + host
         rows.append((telnet_line, fit(telnet_line, 20)))
         if ip:
-            ip_line = "or: " + ip
+            ip_line = "$ telnet " + ip
             rows.append((ip_line, fit(ip_line, 18)))
         if ssid:
             ssid_line = "wifi: " + ssid
