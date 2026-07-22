@@ -74,9 +74,9 @@ NET_INFO_TTL = int(os.environ.get("NET_INFO_TTL", "30"))
 BANNER = (
     "\r\n"
     "======================================\r\n"
-    "        C R T   P L A Y E R\r\n"
+    "      S T A T I O N . L O C A L\r\n"
     "======================================\r\n"
-    "Play YouTube videos on the TV. No login needed.\r\n"
+    "\r\n"
 )
 
 HELP = (
