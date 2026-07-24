@@ -230,10 +230,32 @@ bool fetchChannelsOnce() {
 
 // ---------- UI ----------
 
+// ---------- LCARS theme colors ----------
+//
+// Classic TNG (Okuda) palette. Computed via tft.color565() at boot rather
+// than as static consts — color565() needs no hardware init, but keeping
+// all color setup in one place inside setup() avoids relying on
+// cross-global static-initialization ordering.
+uint16_t COLOR_BG;         // black background
+uint16_t COLOR_SIDEBAR;    // orange — sidebar, row text
+uint16_t COLOR_HEADER;     // lilac — header bar, row separators
+uint16_t COLOR_HIGHLIGHT;  // ice blue — current-channel row, cal crosshair
+uint16_t COLOR_NAV;        // dusty rose — PREV/NEXT nav bar
+uint16_t COLOR_BLOCK_TEXT; // black — text drawn on any colored block
+
+void initLcarsColors() {
+  COLOR_BG = TFT_BLACK;
+  COLOR_SIDEBAR = tft.color565(0xFF, 0x99, 0x00);
+  COLOR_HEADER = tft.color565(0xCC, 0x99, 0xCC);
+  COLOR_HIGHLIGHT = tft.color565(0x99, 0x99, 0xFF);
+  COLOR_NAV = tft.color565(0xCC, 0x66, 0x99);
+  COLOR_BLOCK_TEXT = TFT_BLACK;
+}
+
 void showMessage(const String &msg) {
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(COLOR_BG);
   tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(COLOR_SIDEBAR, COLOR_BG);
   tft.setTextFont(2);
   tft.drawString(msg, SCREEN_W / 2, SCREEN_H / 2);
 }
@@ -279,12 +301,12 @@ void drawPage(int page) {
 }
 
 void drawCalTarget(int16_t tx, int16_t ty, const String &label) {
-  tft.fillScreen(TFT_BLACK);
-  tft.drawFastHLine(tx - 10, ty, 20, TFT_WHITE);
-  tft.drawFastVLine(tx, ty - 10, 20, TFT_WHITE);
+  tft.fillScreen(COLOR_BG);
+  tft.drawFastHLine(tx - 10, ty, 20, COLOR_HIGHLIGHT);
+  tft.drawFastVLine(tx, ty - 10, 20, COLOR_HIGHLIGHT);
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(COLOR_SIDEBAR, COLOR_BG);
   tft.drawString(label, SCREEN_W / 2, SCREEN_H / 2);
 }
 
@@ -440,7 +462,8 @@ void setup() {
 
   tft.init();
   tft.setRotation(0); // 240x320 portrait, USB connector at the bottom
-  tft.fillScreen(TFT_BLACK);
+  initLcarsColors();
+  tft.fillScreen(COLOR_BG);
 
   SPI.begin(TOUCH_SCK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   ts.begin();
