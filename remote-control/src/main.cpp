@@ -271,6 +271,8 @@ String truncateToWidth(const String &s, int maxW) {
 
 // ---------- LCARS chrome ----------
 
+// Two plain, differently-colored rectangles — no rounding or divider line,
+// the color change alone marks the PREV/NEXT boundary.
 void drawNavBar() {
   int navY = ROWS_PER_PAGE * ROW_H;
   tft.fillRect(0, navY, SCREEN_W / 2, NAV_H, COLOR_PREV);
