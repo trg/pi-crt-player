@@ -66,9 +66,17 @@ struct Channel {
 Channel channels[MAX_CHANNELS];
 int channelCount = 0;
 
-const int ROWS_PER_PAGE = 6;
-const int ROW_H = 45;
-const int NAV_H = 50;   // ROWS_PER_PAGE*ROW_H + NAV_H == SCREEN_H exactly
+const int SIDEBAR_W = 44;   // decorative LCARS sidebar, not tappable
+const int SIDEBAR_R = 16;   // sidebar's outer (left-side) corner radius
+const int CONTENT_X = SIDEBAR_W;
+const int CONTENT_W = SCREEN_W - SIDEBAR_W; // 196
+const int ELBOW_R = 14;     // header/nav inner-corner radius, joins sidebar
+
+const int HEADER_H = 36;
+const int ROWS_PER_PAGE = 5;  // was 6 — header eats the 6th row's space
+const int ROW_H = 44;         // was 45
+const int NAV_H = 64;         // was 50
+// HEADER_H + ROWS_PER_PAGE*ROW_H + NAV_H == SCREEN_H exactly (36+220+64=320)
 int pageIdx = 0;
 
 int totalPages() {
@@ -269,35 +277,90 @@ String truncateToWidth(const String &s, int maxW) {
   return out + "..";
 }
 
+// ---------- LCARS chrome ----------
+//
+// Rounds exactly one corner of an already solid-filled rect: blank that
+// corner's r x r box to the background color, then restore an inset
+// quarter-disk of the foreground color — the same body-plus-corner-circle
+// construction TFT_eSPI's own fillRoundRect uses internally, applied to a
+// single corner instead of all 4. LCARS "elbow" joints need only the
+// corner facing the curve rounded — the others stay flush against
+// neighboring chrome (screen edge, sidebar, adjacent bar).
+enum Corner { CORNER_TL, CORNER_TR, CORNER_BR, CORNER_BL };
+
+void roundCorner(int x, int y, int w, int h, int r, Corner c, uint16_t fg, uint16_t bg) {
+  int bx, by, cx, cy;
+  switch (c) {
+    case CORNER_TL: bx = x;         by = y;         cx = x + r;     cy = y + r;     break;
+    case CORNER_TR: bx = x + w - r; by = y;         cx = x + w - r; cy = y + r;     break;
+    case CORNER_BR: bx = x + w - r; by = y + h - r; cx = x + w - r; cy = y + h - r; break;
+    default:        bx = x;         by = y + h - r; cx = x + r;     cy = y + h - r; break; // CORNER_BL
+  }
+  tft.fillRect(bx, by, r, r, bg);
+  tft.fillCircle(cx, cy, r, fg);
+}
+
+// Full-height orange bar, rounded on its two outer (left) corners only —
+// the inner edge stays flush against the content column.
+void drawSidebar() {
+  tft.fillRect(0, 0, SIDEBAR_W, SCREEN_H, COLOR_SIDEBAR);
+  roundCorner(0, 0, SIDEBAR_W, SCREEN_H, SIDEBAR_R, CORNER_TL, COLOR_SIDEBAR, COLOR_BG);
+  roundCorner(0, 0, SIDEBAR_W, SCREEN_H, SIDEBAR_R, CORNER_BL, COLOR_SIDEBAR, COLOR_BG);
+}
+
+// Lilac header bar spanning the content column. Only its bottom-left
+// corner rounds (the elbow joint into the row list) — top-left stays
+// square, flush against the sidebar's own rounded top-left.
+void drawHeader() {
+  tft.fillRect(CONTENT_X, 0, CONTENT_W, HEADER_H, COLOR_HEADER);
+  roundCorner(CONTENT_X, 0, CONTENT_W, HEADER_H, ELBOW_R, CORNER_BL, COLOR_HEADER, COLOR_BG);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextFont(2);
+  tft.setTextColor(COLOR_BLOCK_TEXT, COLOR_HEADER);
+  tft.drawString("CHANNELS", CONTENT_X + CONTENT_W / 2, HEADER_H / 2);
+}
+
+// Rose nav bar spanning the content column, split PREV/NEXT by a thin
+// black divider. Only its top-left corner rounds (the elbow joint out of
+// the row list).
+void drawNavBar() {
+  int navY = HEADER_H + ROWS_PER_PAGE * ROW_H;
+  tft.fillRect(CONTENT_X, navY, CONTENT_W, NAV_H, COLOR_NAV);
+  roundCorner(CONTENT_X, navY, CONTENT_W, NAV_H, ELBOW_R, CORNER_TL, COLOR_NAV, COLOR_BG);
+  tft.drawFastVLine(CONTENT_X + CONTENT_W / 2, navY, NAV_H, COLOR_BG);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextFont(2);
+  tft.setTextColor(COLOR_BLOCK_TEXT, COLOR_NAV);
+  tft.drawString("< PREV", CONTENT_X + CONTENT_W / 4, navY + NAV_H / 2);
+  tft.drawString("NEXT >", CONTENT_X + CONTENT_W * 3 / 4, navY + NAV_H / 2);
+}
+
 void drawPage(int page) {
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(COLOR_BG);
+  drawSidebar();
+  drawHeader();
+
   tft.setTextFont(2);
   tft.setTextDatum(ML_DATUM);
 
   int start = page * ROWS_PER_PAGE;
   for (int i = 0; i < ROWS_PER_PAGE; i++) {
     int idx = start + i;
-    int y = i * ROW_H;
+    int y = HEADER_H + i * ROW_H;
     if (idx < channelCount) {
       bool cur = channels[idx].current;
-      uint16_t bg = cur ? TFT_WHITE : TFT_BLACK;
-      uint16_t fg = cur ? TFT_BLACK : TFT_WHITE;
-      tft.fillRect(0, y, SCREEN_W, ROW_H, bg);
+      uint16_t bg = cur ? COLOR_HIGHLIGHT : COLOR_BG;
+      uint16_t fg = cur ? COLOR_BLOCK_TEXT : COLOR_SIDEBAR;
+      tft.fillRect(CONTENT_X, y, CONTENT_W, ROW_H, bg);
       tft.setTextColor(fg, bg);
       String label = String(channels[idx].num) + "  " + channels[idx].name;
-      tft.drawString(truncateToWidth(label, SCREEN_W - 16), 8, y + ROW_H / 2);
+      label.toUpperCase();
+      tft.drawString(truncateToWidth(label, CONTENT_W - 16), CONTENT_X + 8, y + ROW_H / 2);
     }
-    tft.drawFastHLine(0, y, SCREEN_W, TFT_DARKGREY);
+    tft.drawFastHLine(CONTENT_X, y, CONTENT_W, COLOR_HEADER);
   }
 
-  int navY = ROWS_PER_PAGE * ROW_H;
-  tft.fillRect(0, navY, SCREEN_W / 2, NAV_H, TFT_NAVY);
-  tft.fillRect(SCREEN_W / 2, navY, SCREEN_W / 2, NAV_H, TFT_DARKGREEN);
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(TFT_WHITE, TFT_NAVY);
-  tft.drawString("< PREV", SCREEN_W / 4, navY + NAV_H / 2);
-  tft.setTextColor(TFT_WHITE, TFT_DARKGREEN);
-  tft.drawString("NEXT >", SCREEN_W * 3 / 4, navY + NAV_H / 2);
+  drawNavBar();
 }
 
 void drawCalTarget(int16_t tx, int16_t ty, const String &label) {
@@ -420,11 +483,13 @@ void calibrateTouchIfNeeded() {
 // ---------- Tap handling ----------
 
 void handleTap(int16_t sx, int16_t sy) {
-  int navY = ROWS_PER_PAGE * ROW_H;
+  if (sx < CONTENT_X) return; // sidebar is decorative, not a tap target
+
+  int navY = HEADER_H + ROWS_PER_PAGE * ROW_H;
   int pages = totalPages();
 
   if (sy >= navY) {
-    if (sx < SCREEN_W / 2) {
+    if (sx < CONTENT_X + CONTENT_W / 2) {
       pageIdx = (pageIdx - 1 + pages) % pages;
     } else {
       pageIdx = (pageIdx + 1) % pages;
@@ -433,7 +498,9 @@ void handleTap(int16_t sx, int16_t sy) {
     return;
   }
 
-  int row = sy / ROW_H;
+  if (sy < HEADER_H) return; // header bar, not a tap target
+
+  int row = (sy - HEADER_H) / ROW_H;
   int idx = pageIdx * ROWS_PER_PAGE + row;
   if (idx >= channelCount) return;
 
