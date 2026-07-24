@@ -9,10 +9,13 @@ endpoint the `pcp ch <n>` CLI uses) — no server-side logic lives here, only a
 thin frontend, per the control-core split described in the root `CLAUDE.md`.
 
 See `docs/superpowers/specs/2026-07-24-esp32-remote-control-design.md` (the
-original two-button hello-world) and
+original two-button hello-world),
 `docs/superpowers/specs/2026-07-24-esp32-remote-channel-list-design.md` (this
-paged list, and the calibration rework) in the repo root for the full design
-rationale.
+paged list, and the calibration rework), and
+`docs/superpowers/specs/2026-07-24-esp32-remote-lcars-theme-design.md` (the
+LCARS color palette — note the built firmware simplified that doc's
+sidebar/header layout away after hardware review; see that spec's status
+note) in the repo root for the full design rationale.
 
 ## Prerequisites
 
@@ -82,9 +85,10 @@ To find the port: run `ls /dev/cu.*` before and after plugging the board in
    in the background; fix `data/config.txt` and re-run `pio run -t uploadfs`
    if it never connects).
 3. **Channel list** — fetched once from pcpd's `/channels` endpoint (the
-   same list `pcp guide` shows), 6 rows per page, with PREV/NEXT buttons
-   along the bottom (wrapping around at either end). The channel airing at
-   boot time is highlighted (white background); tapping any row updates that
+   same list `pcp guide` shows), 6 rows per page (zero-padded numbers, e.g.
+   "01"), with PREV (rose) / NEXT (orange) buttons along the bottom in
+   distinct colors (wrapping around at either end). The channel airing at
+   boot time is highlighted in ice blue; tapping any row updates that
    highlight locally so it tracks whatever you last tuned to, without
    needing to re-fetch the whole list. The list itself is **not** re-fetched
    after boot — editing `channels.txt` on the Pi means power-cycling the

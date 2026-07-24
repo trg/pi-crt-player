@@ -1,6 +1,15 @@
 # ESP32 touchscreen remote — LCARS theme
 
-Status: approved, not yet implemented.
+Status: implemented, simplified from this doc after hardware review. The
+color palette and typography sections below shipped as written. The
+sidebar/header/elbow layout described in "Layout" and "Construction" did
+not: after seeing it on the physical device, the sidebar and header bar were
+dropped entirely, the row grid reverted to the original full-width 6
+rows/page (45px rows + 50px nav, matching the pre-LCARS geometry) instead of
+5, and the nav bar became two plain, differently-colored rectangles (rose
+PREV, orange NEXT) instead of one rose bar with a divider. See
+`remote-control/src/main.cpp`'s `drawPage`/`drawNavBar` for the as-built
+layout.
 
 ## What this is
 
