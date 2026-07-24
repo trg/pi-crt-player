@@ -1,12 +1,11 @@
-// pi-crt-player remote control — hello world firmware for the
-// ESP32-2432S028R ("Cheap Yellow Display") 2.8" touchscreen board.
+// pi-crt-player remote control — ESP32-2432S028R ("Cheap Yellow Display")
+// 2.8" touchscreen board.
 //
-// Two touch zones fill the screen: top half tunes the CRT player to
-// channel 7, bottom half to channel 13. Each tap POSTs straight to pcpd's
-// existing HTTP API (the same /channel endpoint the `pcp ch <n>` CLI uses) —
-// no new server endpoint, no business logic here (see root CLAUDE.md's
-// control-core/frontend split: this firmware is a thin frontend, same as
-// telnet and the CLI).
+// Shows a paged, scrollable list of every channel from pcpd's /channels
+// endpoint (the same guide `pcp guide`/telnet's `guide` command shows).
+// Tapping a row POSTs straight to pcpd's existing /channel endpoint (the
+// same one the `pcp ch <n>` CLI uses) — no server-side logic here, only a
+// thin frontend (see root CLAUDE.md's control-core/frontend split).
 //
 // Config (WiFi + pcpd address) lives in data/config.txt on LittleFS —
 // upload it with `pio run -t uploadfs` before flashing, or use scripts/flash.sh
@@ -15,6 +14,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <TFT_eSPI.h>
 #include <Preferences.h>
@@ -53,6 +53,28 @@ struct Config {
 
 Config cfg;
 
+// ---------- Channel list ----------
+
+const int MAX_CHANNELS = 64;   // headroom above today's ~21-channel lineup
+
+struct Channel {
+  uint8_t num;
+  String name;
+  bool current;
+};
+
+Channel channels[MAX_CHANNELS];
+int channelCount = 0;
+
+const int ROWS_PER_PAGE = 6;
+const int ROW_H = 45;
+const int NAV_H = 50;   // ROWS_PER_PAGE*ROW_H + NAV_H == SCREEN_H exactly
+int pageIdx = 0;
+
+int totalPages() {
+  return (channelCount + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE;
+}
+
 // Resistive touch contact-bounce debounce: a single physical tap can
 // register as touched/released/touched within milliseconds, so a simple
 // "was it pressed last loop" latch isn't enough — require a minimum gap
@@ -60,15 +82,23 @@ Config cfg;
 unsigned long lastFireMs = 0;
 const unsigned long TAP_COOLDOWN_MS = 400;
 
-// Two-point touch calibration: tap the top button, then the bottom button,
-// and see which raw touch axis (X or Y — the panel's wiring doesn't
-// necessarily line up with the screen's rotation) actually separates them.
-// Enough to tell which half was pressed on this hello-world's two
-// full-width zones — no need for a full 4-corner, screen-coordinate
-// calibration.
-bool calAxisIsX = false;
-int16_t calTop = 0;
-int16_t calBottom = 0;
+// ---------- Touch calibration ----------
+//
+// Three taps — top-left, top-right, bottom-left — rather than a simple
+// diagonal top-left/bottom-right pair. A true diagonal pair can't reliably
+// tell us which raw touch axis (x or y) tracks the screen's horizontal vs.
+// vertical direction: on this 240x320 panel, a diagonal corner-to-corner tap
+// covers ~83% of the screen's width and ~88% of its height — too close to
+// tell apart by comparing raw deltas. Isolating one screen axis per pair
+// (TL->TR only moves horizontally, TL->BL only moves vertically) makes the
+// swap/inversion detection unambiguous — the same trick the very first
+// version of this firmware used for its single top/bottom split, just
+// applied to both axes now that we need real X/Y hit-testing.
+const int16_t CAL_MARGIN = 30;
+
+bool xUsesRawX = true;
+int16_t rawXLeft = 0, rawXRight = 0;
+int16_t rawYTop = 0, rawYBottom = 0;
 
 // ---------- Config loading ----------
 
@@ -136,8 +166,7 @@ static String stripLocalSuffix(const String &h) {
 
 // Returns the HTTP status code (200 = success), or a negative code if the
 // request never got a response (mDNS resolution failure, unreachable,
-// timeout). Body is deliberately not parsed — the hello-world only needs
-// pass/fail.
+// timeout). Body is deliberately not parsed — only pass/fail is needed.
 int tuneChannel(int num) {
   IPAddress ip = MDNS.queryHost(stripLocalSuffix(cfg.pcpHost), 3000);
   if (ip == IPAddress()) { // queryHost returns 0.0.0.0 on failure
@@ -157,22 +186,49 @@ int tuneChannel(int num) {
   return code;
 }
 
-// ---------- UI ----------
+// Fetches the channel lineup once. Returns false on any failure (mDNS,
+// network, non-200, bad JSON, empty list) — caller decides whether to retry.
+bool fetchChannelsOnce() {
+  IPAddress ip = MDNS.queryHost(stripLocalSuffix(cfg.pcpHost), 3000);
+  if (ip == IPAddress()) {
+    Serial.println("mDNS lookup failed for channel fetch");
+    return false;
+  }
 
-void drawButtons() {
-  tft.fillScreen(TFT_BLACK);
-  tft.fillRect(0, 0, SCREEN_W, SCREEN_H / 2, TFT_DARKGREEN);
-  tft.fillRect(0, SCREEN_H / 2, SCREEN_W, SCREEN_H / 2, TFT_NAVY);
-  tft.drawFastHLine(0, SCREEN_H / 2, SCREEN_W, TFT_WHITE);
+  HTTPClient http;
+  String url = "http://" + ip.toString() + ":" + String(cfg.pcpPort) + "/channels";
+  http.begin(url);
+  http.setTimeout(4000);
+  int code = http.GET();
+  if (code != 200) {
+    Serial.printf("GET %s -> %d\n", url.c_str(), code);
+    http.end();
+    return false;
+  }
 
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextFont(4);
-  tft.setTextColor(TFT_WHITE, TFT_DARKGREEN);
-  tft.drawString("CH 7", SCREEN_W / 2, SCREEN_H / 4);
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, http.getStream());
+  http.end();
+  if (err) {
+    Serial.printf("channels JSON parse failed: %s\n", err.c_str());
+    return false;
+  }
 
-  tft.setTextColor(TFT_WHITE, TFT_NAVY);
-  tft.drawString("CH 13", SCREEN_W / 2, SCREEN_H * 3 / 4);
+  channelCount = 0;
+  for (JsonObject c : doc["channels"].as<JsonArray>()) {
+    if (channelCount >= MAX_CHANNELS) {
+      Serial.println("channel list truncated at MAX_CHANNELS");
+      break;
+    }
+    channels[channelCount].num = c["num"] | 0;
+    channels[channelCount].name = String((const char *) (c["name"] | ""));
+    channels[channelCount].current = c["current"] | false;
+    channelCount++;
+  }
+  return channelCount > 0;
 }
+
+// ---------- UI ----------
 
 void showMessage(const String &msg) {
   tft.fillScreen(TFT_BLACK);
@@ -182,58 +238,196 @@ void showMessage(const String &msg) {
   tft.drawString(msg, SCREEN_W / 2, SCREEN_H / 2);
 }
 
+String truncateToWidth(const String &s, int maxW) {
+  if (tft.textWidth(s) <= maxW) return s;
+  String out = s;
+  while (out.length() > 1 && tft.textWidth(out + "..") > maxW) {
+    out.remove(out.length() - 1);
+  }
+  return out + "..";
+}
+
+void drawPage(int page) {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextFont(2);
+  tft.setTextDatum(ML_DATUM);
+
+  int start = page * ROWS_PER_PAGE;
+  for (int i = 0; i < ROWS_PER_PAGE; i++) {
+    int idx = start + i;
+    int y = i * ROW_H;
+    if (idx < channelCount) {
+      bool cur = channels[idx].current;
+      uint16_t bg = cur ? TFT_WHITE : TFT_BLACK;
+      uint16_t fg = cur ? TFT_BLACK : TFT_WHITE;
+      tft.fillRect(0, y, SCREEN_W, ROW_H, bg);
+      tft.setTextColor(fg, bg);
+      String label = String(channels[idx].num) + "  " + channels[idx].name;
+      tft.drawString(truncateToWidth(label, SCREEN_W - 16), 8, y + ROW_H / 2);
+    }
+    tft.drawFastHLine(0, y, SCREEN_W, TFT_DARKGREY);
+  }
+
+  int navY = ROWS_PER_PAGE * ROW_H;
+  tft.fillRect(0, navY, SCREEN_W / 2, NAV_H, TFT_NAVY);
+  tft.fillRect(SCREEN_W / 2, navY, SCREEN_W / 2, NAV_H, TFT_DARKGREEN);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_NAVY);
+  tft.drawString("< PREV", SCREEN_W / 4, navY + NAV_H / 2);
+  tft.setTextColor(TFT_WHITE, TFT_DARKGREEN);
+  tft.drawString("NEXT >", SCREEN_W * 3 / 4, navY + NAV_H / 2);
+}
+
+void drawCalTarget(int16_t tx, int16_t ty, const String &label) {
+  tft.fillScreen(TFT_BLACK);
+  tft.drawFastHLine(tx - 10, ty, 20, TFT_WHITE);
+  tft.drawFastVLine(tx, ty - 10, 20, TFT_WHITE);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextFont(2);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString(label, SCREEN_W / 2, SCREEN_H / 2);
+}
+
 // Blocks until a touch is sampled, returning its raw point (debounced with
-// a second consistent sample).
-TS_Point waitForRawTouch() {
+// a second consistent sample 30ms later). Only used during calibration,
+// where blocking is fine — the runtime tap path below uses a shorter,
+// non-blocking-friendly version.
+//
+// Also waits for the finger to lift before returning: calibration draws
+// targets back-to-back with no other UI event between them, so without this
+// a single physical tap that's still resting on the glass when the next
+// target appears immediately satisfies that target's touch-wait too (with
+// nearly identical raw coordinates) — one tap registering as several.
+TS_Point waitForStableRawTouch() {
+  TS_Point result;
   while (true) {
     if (ts.touched()) {
       TS_Point p = ts.getPoint();
       delay(30);
       if (ts.touched()) {
         TS_Point p2 = ts.getPoint();
-        if (abs(p.x - p2.x) < 200 && abs(p.y - p2.y) < 200) return p2;
+        if (abs(p.x - p2.x) < 200 && abs(p.y - p2.y) < 200) {
+          result = p2;
+          break;
+        }
       }
     }
     delay(20);
   }
+  while (ts.touched()) delay(20);
+  delay(150); // let contact-bounce settle after lift-off
+  return result;
 }
 
-// Two-point calibration: tap the top button, then the bottom button. We
-// don't assume which raw axis (X or Y) corresponds to "vertical" on
-// screen — the touch panel's wiring/rotation relationship isn't something
-// we've verified, so we just use whichever axis actually separates the two
-// taps. Cached in NVS (Preferences) so later boots skip straight to the
-// buttons.
+// A resistive touch controller's very first sample after contact is often
+// noisy/unsettled — this was very likely the reason every tap in the
+// original two-button version resolved to the same button regardless of
+// where the screen was pressed: the old code trusted a single immediate
+// `ts.getPoint()` in the loop, unlike calibration, which already read twice.
+// Runtime taps now go through the same double-sample check.
+bool getStableTouch(TS_Point &out) {
+  if (!ts.touched()) return false;
+  TS_Point p1 = ts.getPoint();
+  delay(15);
+  if (!ts.touched()) return false;
+  TS_Point p2 = ts.getPoint();
+  if (abs(p1.x - p2.x) > 150 || abs(p1.y - p2.y) > 150) return false;
+  out = p2;
+  return true;
+}
+
+void toScreenXY(const TS_Point &p, int16_t &sx, int16_t &sy) {
+  int16_t rawX = xUsesRawX ? p.x : p.y;
+  int16_t rawY = xUsesRawX ? p.y : p.x;
+  long x = map(rawX, rawXLeft, rawXRight, CAL_MARGIN, SCREEN_W - CAL_MARGIN);
+  long y = map(rawY, rawYTop, rawYBottom, CAL_MARGIN, SCREEN_H - CAL_MARGIN);
+  sx = constrain(x, 0, SCREEN_W - 1);
+  sy = constrain(y, 0, SCREEN_H - 1);
+}
+
+// Three-point calibration: top-left, top-right, bottom-left. TL->TR isolates
+// the screen's horizontal axis (screen Y is ~constant between those two
+// taps); TL->BL isolates the vertical axis. Whichever raw axis (x or y)
+// changes more between a given pair is the one that tracks that screen
+// direction — deciding both independently would risk an inconsistent
+// diagonal result, so only the horizontal pair's result is trusted and the
+// vertical axis is taken as its complement (there are only two raw axes).
+// Cached in NVS so later boots skip straight to the channel list.
 void calibrateTouchIfNeeded() {
   prefs.begin("remote-control", false);
-  bool haveCal = prefs.isKey("calAxisIsX") && prefs.isKey("calTop") && prefs.isKey("calBottom");
+  bool haveCal = prefs.isKey("xUsesRawX") && prefs.isKey("rXL") &&
+                 prefs.isKey("rXR") && prefs.isKey("rYT") && prefs.isKey("rYB");
   if (haveCal) {
-    calAxisIsX = prefs.getBool("calAxisIsX");
-    calTop = prefs.getShort("calTop");
-    calBottom = prefs.getShort("calBottom");
+    xUsesRawX = prefs.getBool("xUsesRawX");
+    rawXLeft = prefs.getShort("rXL");
+    rawXRight = prefs.getShort("rXR");
+    rawYTop = prefs.getShort("rYT");
+    rawYBottom = prefs.getShort("rYB");
     prefs.end();
     return;
   }
 
-  drawButtons();
-  showMessage("Tap the TOP button");
-  TS_Point top = waitForRawTouch();
+  drawCalTarget(CAL_MARGIN, CAL_MARGIN, "Tap TOP-LEFT");
+  TS_Point tl = waitForStableRawTouch();
 
-  showMessage("Tap the BOTTOM button");
-  TS_Point bottom = waitForRawTouch();
+  drawCalTarget(SCREEN_W - CAL_MARGIN, CAL_MARGIN, "Tap TOP-RIGHT");
+  TS_Point tr = waitForStableRawTouch();
 
-  int16_t dx = abs(top.x - bottom.x);
-  int16_t dy = abs(top.y - bottom.y);
-  calAxisIsX = dx >= dy;
-  calTop = calAxisIsX ? top.x : top.y;
-  calBottom = calAxisIsX ? bottom.x : bottom.y;
+  drawCalTarget(CAL_MARGIN, SCREEN_H - CAL_MARGIN, "Tap BOTTOM-LEFT");
+  TS_Point bl = waitForStableRawTouch();
 
-  prefs.putBool("calAxisIsX", calAxisIsX);
-  prefs.putShort("calTop", calTop);
-  prefs.putShort("calBottom", calBottom);
+  int16_t dxTR = abs(tr.x - tl.x), dyTR = abs(tr.y - tl.y);
+  xUsesRawX = dxTR >= dyTR;
+
+  rawXLeft = xUsesRawX ? tl.x : tl.y;
+  rawXRight = xUsesRawX ? tr.x : tr.y;
+  rawYTop = xUsesRawX ? tl.y : tl.x;
+  rawYBottom = xUsesRawX ? bl.y : bl.x;
+
+  prefs.putBool("xUsesRawX", xUsesRawX);
+  prefs.putShort("rXL", rawXLeft);
+  prefs.putShort("rXR", rawXRight);
+  prefs.putShort("rYT", rawYTop);
+  prefs.putShort("rYB", rawYBottom);
   prefs.end();
-  Serial.printf("Touch calibrated: axis=%s top=%d bottom=%d\n",
-                calAxisIsX ? "x" : "y", calTop, calBottom);
+
+  Serial.printf("Touch calibrated: xUsesRawX=%d rawX[%d,%d] rawY[%d,%d]\n",
+                xUsesRawX, rawXLeft, rawXRight, rawYTop, rawYBottom);
+}
+
+// ---------- Tap handling ----------
+
+void handleTap(int16_t sx, int16_t sy) {
+  int navY = ROWS_PER_PAGE * ROW_H;
+  int pages = totalPages();
+
+  if (sy >= navY) {
+    if (sx < SCREEN_W / 2) {
+      pageIdx = (pageIdx - 1 + pages) % pages;
+    } else {
+      pageIdx = (pageIdx + 1) % pages;
+    }
+    drawPage(pageIdx);
+    return;
+  }
+
+  int row = sy / ROW_H;
+  int idx = pageIdx * ROWS_PER_PAGE + row;
+  if (idx >= channelCount) return;
+
+  int code = tuneChannel(channels[idx].num);
+  if (code != 200) {
+    showMessage(code > 0 ? ("HTTP " + String(code)) : "no response");
+    delay(1500);
+  } else {
+    // The channel list is fetched once at boot and never re-polled (see
+    // design doc), so its "current" flags would otherwise stay frozen at
+    // whatever was airing at boot forever. Update the highlight locally on
+    // a successful tune instead of leaving it stale.
+    for (int i = 0; i < channelCount; i++) channels[i].current = false;
+    channels[idx].current = true;
+  }
+  drawPage(pageIdx);
 }
 
 // ---------- Main ----------
@@ -262,35 +456,39 @@ void setup() {
   showMessage("Connecting WiFi...");
   if (!connectWiFi()) {
     showMessage("WiFi connect failed");
+    while (!connectWiFi()) {
+      delay(3000);
+    }
   }
 
-  drawButtons();
+  while (true) {
+    showMessage("Fetching channels...");
+    if (fetchChannelsOnce()) break;
+    showMessage("Fetch failed, retrying...");
+    delay(3000);
+  }
+
+  drawPage(pageIdx);
 }
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     showMessage("Reconnecting WiFi...");
     if (connectWiFi()) {
-      drawButtons();
+      drawPage(pageIdx);
     } else {
       delay(5000);
     }
     return;
   }
 
-  if (ts.touched() && millis() - lastFireMs > TAP_COOLDOWN_MS) {
-    lastFireMs = millis();
-    TS_Point p = ts.getPoint();
-    int16_t value = calAxisIsX ? p.x : p.y;
-    // Pick whichever calibration point this reading is closer to, rather
-    // than assuming a fixed raw-value direction — handles either axis
-    // orientation without needing to hardcode inversion.
-    int channel = (abs(value - calTop) < abs(value - calBottom)) ? 7 : 13;
-    int code = tuneChannel(channel);
-    if (code != 200) {
-      showMessage(code > 0 ? ("HTTP " + String(code)) : "no response");
-      delay(1500);
-      drawButtons();
+  if (millis() - lastFireMs > TAP_COOLDOWN_MS) {
+    TS_Point p;
+    if (getStableTouch(p)) {
+      lastFireMs = millis();
+      int16_t sx, sy;
+      toScreenXY(p, sx, sy);
+      handleTap(sx, sy);
     }
   }
 
