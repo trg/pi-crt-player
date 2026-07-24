@@ -300,7 +300,9 @@ void drawPage(int page) {
       uint16_t fg = cur ? COLOR_BLOCK_TEXT : COLOR_TEXT;
       tft.fillRect(0, y, SCREEN_W, ROW_H, bg);
       tft.setTextColor(fg, bg);
-      String label = String(channels[idx].num) + "  " + channels[idx].name;
+      char numBuf[4];
+      snprintf(numBuf, sizeof(numBuf), "%02u", channels[idx].num);
+      String label = String(numBuf) + "  " + channels[idx].name;
       label.toUpperCase();
       tft.drawString(truncateToWidth(label, SCREEN_W - 16), 8, y + ROW_H / 2);
     }
