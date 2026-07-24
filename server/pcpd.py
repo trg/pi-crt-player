@@ -5,8 +5,9 @@ Owns a single persistent mpv instance (driven over its JSON IPC socket),
 manages the video queue, and exposes that state through two thin frontends:
 
   * a line-based telnet server (port 23) — the retro remote
-  * an HTTP/JSON API (localhost) — used by the play/stop/queue/next/now CLI
-    tools today, and ready to back a box-hosted web UI tomorrow
+  * an HTTP/JSON API (LAN-reachable) — used by the play/stop/queue/next/now
+    CLI tools and the ESP32 touchscreen remote today, and ready to back a
+    box-hosted web UI tomorrow
 
 All playback logic lives in Controller; the frontends only translate input
 into Controller calls, so adding a web UI later needs no changes here.
@@ -24,7 +25,11 @@ MPV = "/usr/bin/mpv"
 YT_DLP = "/usr/local/bin/yt-dlp"
 MPV_SOCK = os.environ.get("MPV_SOCK", "/run/pi-crt-player/mpv.sock")
 TELNET_PORT = int(os.environ.get("PLAYER_PORT", "23"))
-HTTP_HOST = os.environ.get("HTTP_HOST", "127.0.0.1")
+# Bound to all interfaces (not just localhost) so LAN devices — the ESP32
+# touchscreen remote, in particular — can reach it directly. No new auth
+# surface: this adopts the same "unauthenticated, LAN-only, by design" trust
+# model the telnet server already has (see root CLAUDE.md's Security note).
+HTTP_HOST = os.environ.get("HTTP_HOST", "0.0.0.0")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "8677"))
 IDLE_IMAGE = os.environ.get("IDLE_IMAGE", "/usr/local/lib/pi-crt-player/idle.png")
 SEARCH_COUNT = 8
@@ -81,20 +86,24 @@ BANNER = (
 
 HELP = (
     "Commands:\r\n"
-    "  search <words>       search YouTube (numbered list)\r\n"
-    "  play <n|url|words>   play now (n = from last search)\r\n"
-    "  queue <n|url|words>  add to the queue\r\n"
-    "  list                 show the queue\r\n"
-    "  next                 skip to the next video\r\n"
-    "  pause                pause / resume\r\n"
-    "  stop                 stop and clear the queue\r\n"
-    "  clear                empty the queue, keep the current video\r\n"
-    "  now                  what's playing + queue\r\n"
-    "  surf                 channel-surfing mode (live TV feel)\r\n"
-    "  ch up | ch down | ch <n>   flip / jump to a channel while surfing\r\n"
-    "  channels | guide     the TV guide (list channels)\r\n"
-    "  help                 show this help\r\n"
-    "  quit                 disconnect\r\n"
+    "  search & queue:\r\n"
+    "    search <words>       search videos (numbered list)\r\n"
+    "    play <n|url|words>   play now (n = from last search)\r\n"
+    "    queue <n|url|words>  add to the queue\r\n"
+    "    list | now           what's playing + queue\r\n"
+    "    clear                empty the queue, keep the current video\r\n"
+    "  playback control:\r\n"
+    "    next                 skip to the next video\r\n"
+    "    pause                pause / resume\r\n"
+    "    cc                   toggle closed captions\r\n"
+    "    stop                 stop and clear the queue\r\n"
+    "  channel surfing:\r\n"
+    "    surf                 channel-surfing mode (live TV feel)\r\n"
+    "    ch up | ch down | ch <n>   flip / jump to a channel while surfing\r\n"
+    "    channels | guide     the TV guide (list channels)\r\n"
+    "  session:\r\n"
+    "    help                 show this help\r\n"
+    "    quit                 disconnect\r\n"
 )
 
 
@@ -268,6 +277,7 @@ class Controller:
         self.queue = []      # upcoming: list of {"title", "url"}
         self.now = None      # currently playing {"title", "url"} or None
         self.paused = False
+        self.captions = False  # closed captions; mirrors mpv's sub-visibility
 
         # channel surfing
         self.channels = []
@@ -462,11 +472,18 @@ class Controller:
             await self.mpv.set_property("pause", self.paused)
             return {"paused": self.paused}
 
+    async def toggle_captions(self):
+        async with self.lock:
+            self.captions = not self.captions
+            await self.mpv.set_property("sub-visibility", self.captions)
+            return {"captions": self.captions}
+
     def status(self):
         st = {
             "now": self.now,
             "playing": self.now is not None,
             "paused": self.paused,
+            "captions": self.captions,
             "queue": list(self.queue),
             "surfing": self.surfing,
         }
@@ -774,7 +791,8 @@ def fmt_status(st):
     now = st.get("now")
     if now:
         lines = ["now playing: " + now["title"]
-                 + (" (paused)" if st.get("paused") else "")]
+                 + (" (paused)" if st.get("paused") else "")
+                 + (" [cc]" if st.get("captions") else "")]
     else:
         lines = ["nothing playing"]
     ch = st.get("channel")
@@ -917,6 +935,9 @@ def telnet_handler(controller):
                     send(f"error: {r['error']}\r\n")
                 else:
                     send("paused.\r\n" if r["paused"] else "resumed.\r\n")
+            elif cmd == "cc":
+                r = await controller.toggle_captions()
+                send("captions on.\r\n" if r["captions"] else "captions off.\r\n")
             elif cmd == "surf":
                 send("tuning in...\r\n")
                 if not await flush():
@@ -980,6 +1001,8 @@ async def route(c, method, path, data):
         return await c.clear(), 200
     if method == "POST" and path == "/pause":
         return await c.pause(), 200
+    if method == "POST" and path == "/captions":
+        return await c.toggle_captions(), 200
     if method == "POST" and path == "/surf":
         return await c.surf(), 200
     if method == "POST" and path == "/channel":

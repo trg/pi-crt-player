@@ -1,0 +1,7 @@
+WIFI_SSID=your-wifi-name
+WIFI_PASS=your-wifi-password
+# Pi's mDNS hostname (same one you'd `telnet <this>` from a Mac) — no
+# ".local" suffix needed, and no IP address: the firmware re-resolves this
+# via mDNS on every request, so a DHCP lease change doesn't break anything.
+PCP_HOST=crt-station
+PCP_PORT=8677

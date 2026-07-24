@@ -5,16 +5,23 @@ Talks to the daemon's HTTP/JSON API. Installed as `pcp` with convenience
 symlinks `play`, `stop`, `queue`, `next`, `now` — the command is taken from
 how it's invoked (argv[0]), or as the first argument to `pcp`.
 
-    play <url | search terms>    play now
-    queue <url | search terms>   add to the queue
-    stop                         stop and clear the queue
-    next                         skip to the next video
-    now                          show what's playing + queue
-    pcp search <words>           search (numbered list)
-    pcp clear | pcp pause        clear queue / pause-resume
-    pcp surf                     channel-surfing mode (live TV feel)
-    pcp ch up | ch down | ch <n> flip / jump to a channel while surfing
-    pcp channels                 the TV guide (list channels)
+    search & queue:
+      play <url | search terms>    play now
+      queue <url | search terms>   add to the queue
+      pcp search <words>           search (numbered list)
+      now                          show what's playing + queue
+      pcp clear                    empty the queue, keep the current video
+
+    playback control:
+      next                         skip to the next video
+      pcp pause                    pause / resume
+      pcp cc                       toggle closed captions
+      stop                         stop and clear the queue
+
+    channel surfing:
+      pcp surf                     channel-surfing mode (live TV feel)
+      pcp ch up | ch down | ch <n> flip / jump to a channel while surfing
+      pcp channels                 the TV guide (list channels)
 """
 import json
 import os
@@ -27,7 +34,7 @@ PORT = os.environ.get("PCP_PORT", "8677")
 BASE = f"http://{HOST}:{PORT}"
 
 CMDS = {"play", "queue", "stop", "next", "now", "status", "clear", "pause",
-        "search", "surf", "ch", "channels", "guide"}
+        "cc", "search", "surf", "ch", "channels", "guide"}
 
 
 def call(method, path, data=None):
@@ -87,6 +94,8 @@ def show(cmd, r):
         print(f"queued (#{r['position']}): {r['queued']['title']}")
     elif "paused" in r:
         print("paused" if r["paused"] else "resumed")
+    elif "captions" in r:
+        print("captions on" if r["captions"] else "captions off")
     else:
         print("ok")
 
@@ -98,7 +107,7 @@ def main():
     elif len(sys.argv) > 1 and sys.argv[1] in CMDS:
         cmd, args = sys.argv[1], sys.argv[2:]
     else:
-        sys.exit("usage: pcp {play|queue|stop|next|now|clear|pause|search|"
+        sys.exit("usage: pcp {play|queue|stop|next|now|clear|pause|cc|search|"
                  "surf|ch|channels} ...")
 
     q = " ".join(args).strip()
@@ -122,6 +131,8 @@ def main():
         r = call("POST", "/clear")
     elif cmd == "pause":
         r = call("POST", "/pause")
+    elif cmd == "cc":
+        r = call("POST", "/captions")
     elif cmd == "surf":
         r = call("POST", "/surf")
     elif cmd == "ch":

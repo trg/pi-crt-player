@@ -41,18 +41,23 @@ Commands:
 
 | Command                | What it does                                     |
 |------------------------|--------------------------------------------------|
-| `search <words>`       | search YouTube, numbered results                 |
+| **Search & queue**     |                                                   |
+| `search <words>`       | search videos, numbered results                  |
 | `play <n\|url\|words>` | play now (`n` picks from the last search)        |
 | `queue <n\|url\|words>`| add to the queue (plays now if nothing is on)    |
 | `list` / `now`         | show what's playing + the queue                  |
+| `clear`                | empty the queue, keep the current video playing  |
+| **Playback control**   |                                                   |
 | `next`                 | skip to the next queued video (next channel programme while surfing) |
 | `pause`                | pause / resume                                   |
+| `cc`                   | toggle closed captions                           |
 | `stop`                 | stop and clear the queue (back to attract screen)|
-| `clear`                | empty the queue, keep the current video playing  |
+| **Channel surfing**    |                                                   |
 | `surf`                 | channel-surfing mode — tune in like a TV         |
 | `ch up` / `ch down`    | flip to the next / previous channel while surfing|
 | `ch <n>`               | jump straight to channel `n` (as in the guide)   |
 | `channels` / `guide`   | the TV guide — list channels, mark what's on     |
+| **Session**            |                                                   |
 | `help`                 | show the command list                            |
 | `quit`                 | disconnect                                        |
 
@@ -173,6 +178,22 @@ That's it — `setup.sh` installs everything and starts the control daemon, so t
 telnet remote is live immediately (and comes back on every boot).
 
 Manage the service with `systemctl status/restart crt-player`.
+
+### Iterating without git (scp)
+
+Don't want to commit/push/pull for every tweak? `./deploy.sh` pushes
+`server/pcpd.py`, `bin/pcp`, `config/mpv.conf`, and `config/channels.txt`
+straight to an already-set-up box over scp and restarts `crt-player` — no
+git checkout on the Pi required:
+
+```bash
+./deploy.sh pi@<pi-host>
+```
+
+It's the scp+restart equivalent of what `./setup.sh` does for those files,
+minus the rest of the fresh-install steps (apt packages, font, yt-dlp,
+groups, unit file) — use `setup.sh` for a fresh Pi, `deploy.sh` for pushing
+changes to one that's already running.
 
 The same actions the telnet remote offers are also available as a local CLI
 (handy when you're already on the box over SSH):

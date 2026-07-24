@@ -63,6 +63,16 @@ lives in one place; frontends are thin translators with zero business logic.
   `pcp` plus symlinks `play`/`stop`/`queue`/`next`/`now` (dispatches on
   `argv[0]`).
 
+- **`remote-control/`** — an ESP32 touchscreen hardware remote (PlatformIO
+  project for the ESP32-2432S028R "Cheap Yellow Display" board). A thin
+  frontend like telnet and `pcp`: it calls pcpd's existing HTTP API
+  directly, no server-side logic of its own. Because of this, `HTTP_HOST`
+  in `server/pcpd.py` defaults to `0.0.0.0` (LAN-reachable) rather than
+  `127.0.0.1` — see that variable's comment and the Security note below.
+  See `remote-control/README.md` for setup/flash/monitor instructions and
+  `docs/superpowers/specs/2026-07-24-esp32-remote-control-design.md` for the
+  design rationale.
+
 - **`server/player.py`** — an earlier, simpler telnet-only prototype
   (shells out to standalone `play`/`stop` scripts, no queue, no persistent
   mpv). Superseded by `pcpd.py` and not installed by `setup.sh` or referenced
@@ -112,9 +122,12 @@ actually on screen.
 ## Security note (intentional, not a bug)
 
 The telnet and HTTP surfaces are deliberately unauthenticated (home-network
-remote). Search/play input reaches `yt-dlp`/`mpv` only via `asyncio.create_subprocess_exec`
-argument lists, never a shell string — preserve that pattern for any new
-subprocess calls so network input can't inject commands.
+remote) — the HTTP API is bound to `0.0.0.0` for this reason, so it's
+reachable from other LAN devices (e.g. the ESP32 remote in
+`remote-control/`), not just localhost. Search/play input reaches
+`yt-dlp`/`mpv` only via `asyncio.create_subprocess_exec` argument lists,
+never a shell string — preserve that pattern for any new subprocess calls so
+network input can't inject commands.
 
 ## Roadmap
 
