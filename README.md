@@ -179,6 +179,13 @@ telnet remote is live immediately (and comes back on every boot).
 
 Manage the service with `systemctl status/restart crt-player`.
 
+`setup.sh` also installs a **daily yt-dlp auto-update timer**
+(`yt-dlp-update.timer`). YouTube changes often enough that a stale yt-dlp
+degrades within weeks — channel tune-ins stuck on "tuning...", or playback
+that starts then dies — well before it errors outright. If you see that,
+`sudo yt-dlp -U` fixes it immediately (no restart needed); `systemctl status
+yt-dlp-update.timer` shows the last/next scheduled run.
+
 ### Iterating without git (scp)
 
 Don't want to commit/push/pull for every tweak? `./deploy.sh` pushes

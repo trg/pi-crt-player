@@ -24,6 +24,14 @@ sudo wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
   -O /usr/local/bin/yt-dlp
 sudo chmod a+rx /usr/local/bin/yt-dlp
 
+echo "==> Installing daily yt-dlp auto-update timer (YouTube changes fast enough"
+echo "    that yt-dlp measurably degrades within weeks — see Troubleshooting in"
+echo "    CLAUDE.md/README.md)..."
+sudo cp "$REPO_DIR/systemd/yt-dlp-update.service" /etc/systemd/system/yt-dlp-update.service
+sudo cp "$REPO_DIR/systemd/yt-dlp-update.timer" /etc/systemd/system/yt-dlp-update.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now yt-dlp-update.timer
+
 echo "==> Adding $USER to video,render,audio groups (for DRM/GPU/sound access)..."
 sudo usermod -aG video,render,audio "$USER"
 

@@ -19,7 +19,9 @@ committing:
 python3 -m py_compile server/pcpd.py
 ```
 
-Deploy/install (fresh Pi only — reinstalls the daemon, CLI, fonts, systemd unit):
+Deploy/install (fresh Pi only — reinstalls the daemon, CLI, fonts, systemd
+unit, yt-dlp, and its daily auto-update timer). Also safe to rerun on an
+existing box, e.g. to force-refresh a stale yt-dlp (see Troubleshooting):
 
 ```bash
 ./setup.sh
@@ -28,9 +30,10 @@ Deploy/install (fresh Pi only — reinstalls the daemon, CLI, fonts, systemd uni
 On the box:
 
 ```bash
-systemctl status crt-player      # daemon status
-systemctl restart crt-player     # after changing server/pcpd.py (needs ./setup.sh to sync the copy)
-journalctl -u crt-player -f      # logs
+systemctl status crt-player          # daemon status
+systemctl restart crt-player         # after changing server/pcpd.py (needs ./setup.sh to sync the copy)
+journalctl -u crt-player -f          # logs
+systemctl status yt-dlp-update.timer # last/next yt-dlp auto-update run
 ```
 
 Editing `config/channels.txt` needs **no** restart — the daemon polls its
@@ -92,6 +95,14 @@ lives in one place; frontends are thin translators with zero business logic.
   `@USER@` and `@CHANNELS@` (absolute path to the repo's `channels.txt`)
   before installing it.
 
+- **`systemd/yt-dlp-update.{service,timer}`** — daily timer that runs
+  `yt-dlp -U` in place. YouTube changes often enough that yt-dlp measurably
+  degrades within weeks of going unpatched — extraction falls back to
+  slower/flakier player clients well before it ever hard-errors, which shows
+  up as channel tune-ins stuck on "tuning..." or playback that starts then
+  dies. Installed and enabled by `setup.sh`; no `crt-player` restart needed
+  after an update since yt-dlp is invoked fresh per subprocess call.
+
 ### Channel surfing (`Controller` §"channel surfing")
 
 Each channel is a YouTube channel/playlist; its uploads become an endless
@@ -128,6 +139,21 @@ reachable from other LAN devices (e.g. the ESP32 remote in
 `yt-dlp`/`mpv` only via `asyncio.create_subprocess_exec` argument lists,
 never a shell string — preserve that pattern for any new subprocess calls so
 network input can't inject commands.
+
+## Troubleshooting
+
+**Channel tune-in stuck on "tuning..." (or plays briefly, then reverts to
+it):** almost always a stale `yt-dlp` — see the `yt-dlp-update.timer` bullet
+above. Confirm with `yt-dlp -U` (shows current vs. latest); fix immediately
+with:
+
+```bash
+sudo yt-dlp -U
+```
+
+No `crt-player` restart or `setup.sh` rerun needed — yt-dlp is a standalone
+binary invoked fresh per subprocess call by both `pcpd.py` and mpv's own
+`ytdl_hook`.
 
 ## Roadmap
 
