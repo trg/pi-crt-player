@@ -1,0 +1,6 @@
+[Unit]
+Description=Update yt-dlp to the latest release
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/yt-dlp -U
