@@ -44,6 +44,10 @@ CHANNELS_FILE = os.environ.get(
 CHANNEL_TTL = int(os.environ.get("CHANNEL_TTL", str(6 * 3600)))  # cache uploads
 CHANNEL_MAX = 60           # videos pulled per channel (the programming loop)
 DEFAULT_PROG_SECS = 600    # assumed length when yt-dlp reports no duration
+# A programme that fails to load skips to the next one, but if loads keep
+# failing (network down, YouTube/yt-dlp breakage) every programme fails the
+# same way — give up after this many in a row rather than cycling forever.
+MAX_LOAD_FAILURES = 3
 # Starter lineup, in the same one-per-line format as channels.txt. REPLACE with
 # your own channels (edit channels.txt on the box — this is only the fallback).
 DEFAULT_CHANNELS = """\
@@ -289,6 +293,8 @@ class Controller:
         self._pending_seek = None      # seconds to seek to once the file loads
         self._info_task = None         # background task drawing the info banner
         self._loaded_event = asyncio.Event()  # set when mpv reports file-loaded
+        self._load_failures = 0        # consecutive failed loads (see on_event)
+        self._load_gen = 0             # bumped on every loadfile/idle
         self._reload_channels()        # initial load (falls back to defaults)
 
         # network info shown on the idle screen (see _refresh_net/_watch_net)
@@ -396,12 +402,14 @@ class Controller:
         self.paused = False
         self.surfing = False          # any explicit play/queue leaves surf mode
         self._pending_seek = None
+        self._load_gen += 1
         await self._clear_info()
         await self._hide_idle_overlay()
         await self.mpv.command("loadfile", item["url"], "replace")
         await self.mpv.set_property("pause", False)
 
     async def _go_idle(self):
+        self._load_gen += 1
         self.now = None
         self.paused = False
         self.surfing = False
@@ -569,6 +577,7 @@ class Controller:
         self.now = {"title": item["title"], "url": item["url"]}
         self.paused = False
         self._pending_seek = offset if offset > 0 else None
+        self._load_gen += 1
         await self._hide_idle_overlay()
         await self.mpv.command("loadfile", item["url"], "replace")
         await self.mpv.set_property("pause", False)
@@ -582,6 +591,7 @@ class Controller:
             return {"error": f"channel '{self.channels[idx]['name']}' unavailable"}
         self.channel_idx = idx
         self.surfing = True
+        self._load_failures = 0        # a fresh tune gets fresh retries
         self.prog_idx, offset = self._schedule(videos)
         item = videos[self.prog_idx]
         async with self.lock:
@@ -741,16 +751,47 @@ class Controller:
         # fetch — either would stall event delivery. Hand the work to a task.
         e = ev.get("event")
         if e == "file-loaded":
+            self._load_failures = 0
             self._loaded_event.set()   # unblocks the banner's hold+fade timer
             if self._pending_seek is not None:
                 # Drop into the programme mid-broadcast (the "live TV" illusion).
                 offset, self._pending_seek = self._pending_seek, None
                 asyncio.create_task(self.mpv.command("seek", offset, "absolute"))
-        elif e == "end-file" and ev.get("reason") in ("eof", "error"):
-            # Natural end (or a broken file) -> move on. Our own loadfile/stop
-            # produce reason "stop"/"redirect", which we deliberately ignore.
+        elif e == "end-file" and ev.get("reason") == "error":
+            asyncio.create_task(self._load_failed(ev))
+        elif e == "end-file" and ev.get("reason") == "eof":
+            # Natural end -> move on. Our own loadfile/stop produce reason
+            # "stop"/"redirect", which we deliberately ignore.
             asyncio.create_task(
                 self._advance_program() if self.surfing else self.advance())
+
+    async def _load_failed(self, ev):
+        """A video failed to load/play: log it, then skip — with a cap.
+
+        While surfing, the next programme is always available, so a systemic
+        failure (network down, yt-dlp broken) would otherwise cycle through the
+        whole channel forever without ever playing. Back off briefly between
+        retries (rides out a Wi-Fi blip) and give up after MAX_LOAD_FAILURES.
+        """
+        self._load_failures += 1
+        item = self.now or {}
+        print(f"pcpd: load failed ({ev.get('file_error', 'unknown error')}) "
+              f"[{self._load_failures} in a row]: "
+              f"{item.get('title')} <{item.get('url')}>", flush=True)
+        if not self.surfing:
+            await self.advance()      # queue is finite; just move along
+            return
+        if self._load_failures >= MAX_LOAD_FAILURES:
+            print(f"pcpd: giving up on CH {self.channel_idx + 1} after "
+                  f"{self._load_failures} failed loads", flush=True)
+            async with self.lock:
+                await self._go_idle()
+            return
+        gen = self._load_gen
+        await asyncio.sleep(2 * self._load_failures)
+        if gen != self._load_gen or not self.surfing:
+            return                    # user tuned/played/stopped meanwhile
+        await self._advance_program()
 
 
 # --------------------------------------------------------------------------
